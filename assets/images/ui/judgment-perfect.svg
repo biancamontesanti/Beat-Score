@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="220" viewBox="0 0 900 220">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#ffffff"/><stop offset="0.38" stop-color="#69f4ff"/><stop offset="1" stop-color="#00a7ff"/></linearGradient></defs>
+  <text x="450" y="164" text-anchor="middle" font-family="Snell Roundhand, Brush Script MT, cursive" font-size="182" font-weight="bold" font-style="italic" fill="url(#g)">Perfect!</text>
+</svg>

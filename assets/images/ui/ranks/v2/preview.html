@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beat Score — coleção de ranks</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:clamp(16px,4vw,48px);font:16px system-ui,sans-serif;color:#fff;background:#090b29}header{max-width:1100px;margin:auto auto 28px}h1{margin:0 0 8px;font-size:clamp(26px,4vw,44px)}p{color:#b4bce5;line-height:1.5}button{padding:12px 18px;min-height:44px;border:1px solid #7589dc;border-radius:12px;color:inherit;background:#191e46;cursor:pointer}.grid{max-width:1400px;margin:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:18px}article{padding:18px;border:1px solid var(--color);border-radius:20px;background:#10142f;text-align:center;position:relative}.badge{width:100%;height:240px;object-fit:contain}.label{width:100%;height:86px;object-fit:contain}.score{font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--color)}h2{font-size:19px;margin:12px 0 4px}.rp{margin:4px 0 18px;font-size:14px;color:#b4bce5}.sample{margin-top:14px;border-top:1px solid #303754;padding-top:12px}.avatar{width:38px;height:38px;background:linear-gradient(var(--color),#15193b);border-radius:50%;margin:0 auto;box-shadow:0 0 0 2px #b9c1ed}.username{font-size:12px;margin-top:8px;font-weight:700}.confetti{display:flex;justify-content:center;gap:16px;margin:12px;color:var(--color)}body.light{background:#e9edff;color:#10142f}body.light article{background:#f9faff}body.light p,body.light .rp{color:#4c567b}body.light button{background:#fff}small{color:#929dc6}.mobile{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));max-width:1000px}.mobile .badge{height:170px}.mobile .label{height:64px}
+</style>
+<header>
+<h1>Beat Score · ranks v2</h1>
+<p>Mesmos ícones, estrelas no topo e cores na ordem dos scores. A progressão continua por RP.</p>
+<button onclick="document.body.classList.toggle('light')">Fundo claro / escuro</button>
+<button onclick="document.querySelector('.grid').classList.toggle('mobile')">Comparar em tamanho mobile</button>
+</header>
+<main class="grid">
+<article style="--color:#ef4768"><div class="score">MISS · 0 PTS</div><img class="badge" src="hit-apprentice.png" alt="Badge Hit Apprentice vermelho, com chapéu e uma estrela"><h2>Hit Apprentice</h2><div class="rp">0 RP</div><div class="sample"><img class="label" src="labels/hit-apprentice-label.png" alt="Label Hit Apprentice"><div class="username">PLAYER</div><div class="avatar"></div><div class="confetti">✦ ◆ ● ✦ ◆</div></div></article>
+<article style="--color:#ffad35"><div class="score">GOOD · 100 PTS</div><img class="badge" src="move-riser.png" alt="Badge Move Riser laranja, com três setas e duas estrelas"><h2>Move Riser</h2><div class="rp">100 RP</div><div class="sample"><img class="label" src="labels/move-riser-label.png" alt="Label Move Riser"><div class="username">PLAYER</div><div class="avatar"></div><div class="confetti">✦ ◆ ● ✦ ◆</div></div></article>
+<article style="--color:#a56cff"><div class="score">COOL · 400 PTS</div><img class="badge" src="club-star.png" alt="Badge Club Star violeta, com bola de discoteca e três estrelas"><h2>Club Star</h2><div class="rp">250 RP</div><div class="sample"><img class="label" src="labels/club-star-label.png" alt="Label Club Star"><div class="username">PLAYER</div><div class="avatar"></div><div class="confetti">✦ ◆ ● ✦ ◆</div></div></article>
+<article style="--color:#53f18a"><div class="score">GREAT · 700 PTS</div><img class="badge" src="step-legend.png" alt="Badge Step Legend verde, com quatro direções e quatro estrelas"><h2>Step Legend</h2><div class="rp">500 RP</div><div class="sample"><img class="label" src="labels/step-legend-label.png" alt="Label Step Legend"><div class="username">PLAYER</div><div class="avatar"></div><div class="confetti">✦ ◆ ● ✦ ◆</div></div></article>
+<article style="--color:#32e4ff"><div class="score">PERFECT · 1000 PTS</div><img class="badge" src="dance-royalty.png" alt="Badge Dance Royalty ciano, com coroa e cinco estrelas"><h2>Dance Royalty</h2><div class="rp">900 RP</div><div class="sample"><img class="label" src="labels/dance-royalty-label.png" alt="Label Dance Royalty"><div class="username">PLAYER</div><div class="avatar"></div><div class="confetti">✦ ◆ ● ✦ ◆</div></div></article>
+</main>
+</html>

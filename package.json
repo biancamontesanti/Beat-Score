@@ -1,0 +1,19 @@
+{
+  "name": "audition-online-dcl",
+  "version": "1.0.0",
+  "description": "Audition Online dance rhythm game for Decentraland SDK7",
+  "scripts": {
+    "start": "sdk-commands start",
+    "build": "sdk-commands build",
+    "deploy": "sdk-commands deploy --target-content https://worlds-content-server.decentraland.org",
+    "server-logs": "sdk-commands sdk-server-logs"
+  },
+  "dependencies": {
+    "@dcl/js-runtime": "7.28.1-34869822800.commit-268e971",
+    "@dcl/sdk": "^7.28.1-34869822800.commit-268e971"
+  },
+  "devDependencies": {
+    "@dcl/sdk-commands": "^7.0.0",
+    "typescript": "~5.1.6"
+  }
+}
