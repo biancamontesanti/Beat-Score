@@ -78,6 +78,69 @@
             },
             "parent": 0
           }
+        },
+        "515": {
+          "json": {
+            "position": {
+              "x": 16.945919036865234,
+              "y": 17.45699119567871,
+              "z": 32.74113082885742
+            },
+            "scale": {
+              "x": 1.899999976158142,
+              "y": 1.899999976158142,
+              "z": 1.899999976158142
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.7359789609909058,
+              "z": 0,
+              "w": -0.6770044565200806
+            },
+            "parent": 0
+          }
+        },
+        "66052": {
+          "json": {
+            "position": {
+              "x": 48.25,
+              "y": 17.5,
+              "z": 33.75
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0.7210350036621094,
+              "z": 0,
+              "w": 0.6928986310958862
+            },
+            "scale": {
+              "x": 1.899999976158142,
+              "y": 1.899999976158142,
+              "z": 1.899999976158142
+            },
+            "parent": 0
+          }
+        },
+        "131589": {
+          "json": {
+            "position": {
+              "x": 32.15377426147461,
+              "y": 0,
+              "z": 33.218685150146484
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "parent": 0
+          }
         }
       }
     },
@@ -95,6 +158,27 @@
             "src": "assets/Models/dropscoremodel/dropscoremodel.glb",
             "visibleMeshesCollisionMask": 2,
             "invisibleMeshesCollisionMask": 2
+          }
+        },
+        "515": {
+          "json": {
+            "src": "assets/Models/BeatScore_Sign/BeatScore_Sign.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "66052": {
+          "json": {
+            "src": "assets/Models/BeatScore_Sign/BeatScore_Sign.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 3
+          }
+        },
+        "131589": {
+          "json": {
+            "src": "assets/Models/gardenred/gardenred.glb",
+            "visibleMeshesCollisionMask": 2,
+            "invisibleMeshesCollisionMask": 3
           }
         }
       }
@@ -115,6 +199,21 @@
         "512": {
           "json": {
             "value": "dropscoremodel.glb"
+          }
+        },
+        "515": {
+          "json": {
+            "value": "BeatScore_Sign.glb"
+          }
+        },
+        "66052": {
+          "json": {
+            "value": "BeatScore_Sign.glb_2"
+          }
+        },
+        "131589": {
+          "json": {
+            "value": "gardenred.glb"
           }
         }
       }
@@ -194,7 +293,10 @@
                 "entity": 0,
                 "open": true,
                 "children": [
-                  512
+                  512,
+                  515,
+                  66052,
+                  131589
                 ]
               },
               {
@@ -207,6 +309,18 @@
               },
               {
                 "entity": 512,
+                "children": []
+              },
+              {
+                "entity": 515,
+                "children": []
+              },
+              {
+                "entity": 66052,
+                "children": []
+              },
+              {
+                "entity": 131589,
                 "children": []
               }
             ]
@@ -235,6 +349,25 @@
           "json": {
             "porportionalScaling": true
           }
+        },
+        "515": {
+          "json": {
+            "porportionalScaling": true
+          }
+        },
+        "66052": {
+          "json": {
+            "porportionalScaling": true
+          }
+        },
+        "131589": {
+          "json": {}
+        },
+        "197122": {
+          "json": {}
+        },
+        "262657": {
+          "json": {}
         }
       }
     },
@@ -582,13 +715,16 @@
           "json": {
             "name": " Beat Score - Dance Game",
             "description": "A Decentraland dance sequence game.",
-            "thumbnail": "assets/images/floor.png",
+            "thumbnail": "assets/images/beatscorephoto.jpg",
             "ageRating": "A",
             "categories": [],
             "author": "BIBI",
-            "email": "",
             "tags": [],
             "layout": {
+              "base": {
+                "x": 0,
+                "y": 0
+              },
               "parcels": [
                 {
                   "x": 0,
@@ -654,14 +790,8 @@
                   "x": 3,
                   "y": 0
                 }
-              ],
-              "base": {
-                "x": 0,
-                "y": 0
-              }
+              ]
             },
-            "silenceVoiceChat": false,
-            "disablePortableExperiences": false,
             "spawnPoints": [
               {
                 "name": "audience-left-lower",
@@ -677,8 +807,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.07,
-                      1.07
+                      1.0700000524520874,
+                      1.0700000524520874
                     ]
                   },
                   "z": {
@@ -709,8 +839,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.77,
-                      1.77
+                      1.7699999809265137,
+                      1.7699999809265137
                     ]
                   },
                   "z": {
@@ -741,8 +871,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      2.57,
-                      2.57
+                      2.569999933242798,
+                      2.569999933242798
                     ]
                   },
                   "z": {
@@ -773,8 +903,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.07,
-                      1.07
+                      1.0700000524520874,
+                      1.0700000524520874
                     ]
                   },
                   "z": {
@@ -805,8 +935,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.77,
-                      1.77
+                      1.7699999809265137,
+                      1.7699999809265137
                     ]
                   },
                   "z": {
@@ -830,15 +960,15 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      46.34,
-                      46.34
+                      46.34000015258789,
+                      46.34000015258789
                     ]
                   },
                   "y": {
                     "$case": "range",
                     "value": [
-                      2.57,
-                      2.57
+                      2.569999933242798,
+                      2.569999933242798
                     ]
                   },
                   "z": {
@@ -869,8 +999,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.07,
-                      1.07
+                      1.0700000524520874,
+                      1.0700000524520874
                     ]
                   },
                   "z": {
@@ -901,8 +1031,8 @@
                   "y": {
                     "$case": "range",
                     "value": [
-                      1.77,
-                      1.77
+                      1.7699999809265137,
+                      1.7699999809265137
                     ]
                   },
                   "z": {
@@ -920,10 +1050,7 @@
                 }
               }
             ],
-            "skyboxConfig": {},
-            "creator": "",
-            "disableNearbyVoiceChat": false,
-            "hideLandscapeTerrain": false
+            "skyboxConfig": {}
           }
         }
       }

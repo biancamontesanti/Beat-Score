@@ -9,11 +9,12 @@
     "server-logs": "sdk-commands sdk-server-logs"
   },
   "dependencies": {
+    "@dcl/ecs": "7.28.1-34869822800.commit-268e971",
     "@dcl/js-runtime": "7.28.1-34869822800.commit-268e971",
-    "@dcl/sdk": "^7.28.1-34869822800.commit-268e971"
+    "@dcl/sdk": "7.28.1-34869822800.commit-268e971"
   },
   "devDependencies": {
-    "@dcl/sdk-commands": "^7.0.0",
+    "@dcl/sdk-commands": "7.28.1-34869822800.commit-268e971",
     "typescript": "~5.1.6"
   }
 }

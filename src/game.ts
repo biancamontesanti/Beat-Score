@@ -16,8 +16,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Schemas } from '@dcl/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
-import { isServer } from '@dcl/sdk/network'
-import { registerMessages } from '@dcl/sdk/network/events'
+import { isServer, registerMessages } from '@dcl/sdk/network'
 import { isMobile } from '@dcl/sdk/platform'
 import { getPlayer, onEnterScene, onLeaveScene } from '@dcl/sdk/players'
 import { movePlayerTo, stopEmote, triggerEmote } from '~system/RestrictedActions'
@@ -312,6 +311,7 @@ let playerEmotesDisabled = false
 let sceneEmoteAllowanceUntil = 0
 let lastLocalEmoteTimestamp = -1
 let touchControlsHidden = false
+let jumpOffRequested = false
 let matchRestrictionRefreshTimer = 0
 let cinematicReady = false
 let cinematicCameraActive = false
@@ -3204,6 +3204,7 @@ export function joinMultiplayerMatch(): void {
 }
 
 export function returnToLobby(): void {
+  jumpOffRequested = false
   resultsPresentation.elapsed = 0
   resultsPresentation.remaining = 0
   cancelPendingSoloStart()
@@ -3241,6 +3242,14 @@ export function returnToLobby(): void {
   teleportPlayerToAudienceSpot()
   stopMatchMusic()
   publishScore(false)
+}
+
+// UI touch handlers must not tear down the active mobile controls while the
+// same pointer event is still being dispatched. Queue the exit and consume it
+// at the beginning of the next engine frame instead.
+export function requestJumpOff(): void {
+  if (gameState.phase !== 'playing' || jumpOffRequested) return
+  jumpOffRequested = true
 }
 
 export function watchLiveMode(): void {
@@ -3321,8 +3330,8 @@ export function openLeaderboardMenu(): void {
   resetMultiplayerReadyWindow()
   setPlayerMovementLocked(false)
   setNativeTouchControlsHidden(false)
-  setCinematicCameraActive(false)
-  teleportPlayerToAudienceSpot()
+  // This is a UI-only action: preserve the avatar transform and the exact
+  // camera/view the player had when they opened the leaderboard.
   stopMatchMusic()
   publishScore(false)
 }
@@ -3465,6 +3474,11 @@ export function initGame(): void {
   initCinematicCamera()
 
   engine.addSystem((dt: number) => {
+    if (jumpOffRequested) {
+      jumpOffRequested = false
+      returnToLobby()
+      return
+    }
     refreshDailyGoals()
     tickRankPresence(dt)
     const soloPlaying = gameState.playMode === 'solo' && gameState.phase === 'playing'

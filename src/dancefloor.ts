@@ -98,6 +98,7 @@ const playerJudgmentCombos = new Map<string, Entity>()
 const playerJudgmentSparkles = new Map<string, Entity[]>()
 const playerJudgmentTextures = new Map<string, JudgmentText>()
 let currentDanceTitleEntity: Entity | null = null
+let currentDanceTitleSource = ''
 let winnerHighlightAvatar: Entity | null = null
 let winnerHighlightRankBadge: Entity | null = null
 let winnerHighlightNameText: Entity | null = null
@@ -241,23 +242,27 @@ function addLeaderboardFrame(collection: Entity[], boardX: number, boardZ: numbe
   }
 }
 
-function beatScoreLogoEntity(x: number, y: number, z: number, width: number, height: number, rotationY = 180): Entity {
+function leaderboardTitleEntity(src: string, x: number, y: number, z: number, width: number, rotationY: number): Entity {
   const entity = engine.addEntity()
-  const logoTexture = Material.Texture.Common({ src: 'assets/images/beatscore.png' })
   Transform.create(entity, {
     position: Vector3.create(sceneX(x), y, sceneZ(z)),
     rotation: Quaternion.fromEulerDegrees(0, rotationY, 0),
-    scale: Vector3.create(width, height, 1),
+    scale: Vector3.create(width, width / 3, 1),
   })
   MeshRenderer.setPlane(entity)
+  setLeaderboardTitleImage(entity, src)
+  return entity
+}
+
+function setLeaderboardTitleImage(entity: Entity, src: string): void {
+  const texture = Material.Texture.Common({ src })
   Material.setBasicMaterial(entity, {
-    texture: logoTexture,
-    alphaTexture: logoTexture,
-    alphaTest: 0.08,
+    texture,
+    alphaTexture: texture,
+    alphaTest: 0.04,
     castShadows: false,
     diffuseColor: Color4.White(),
   })
-  return entity
 }
 
 function glassRoundedSign(x: number, y: number, z: number, width: number, height: number, showCorners = true): void {
@@ -696,11 +701,10 @@ function buildPhysicalLeaderboard(): void {
   const rowZ = 29.98
   const badgeZ = 29.84
   const textZ = 29.76
-  const logoZ = 29.66
-  const titleZ = 29.58
+  // Keep the title plane clearly in front of the board/frame to avoid
+  // depth-buffer clipping at oblique camera angles.
+  const titleZ = 29.38
   const rotationY = 0
-
-  remember(beatScoreLogoEntity(boardX, 8.72, logoZ, 5.8, 3.17, rotationY), currentDanceEntities)
 
   const board = engine.addEntity()
   remember(board, currentDanceEntities)
@@ -712,7 +716,8 @@ function buildPhysicalLeaderboard(): void {
   )
   addLeaderboardFrame(currentDanceEntities, boardX, boardZ, Color3.create(1.0, 0.18, 0.58))
 
-  currentDanceTitleEntity = remember(neonTitleEntity('CURRENT DANCE', boardX, 7.50, titleZ, 7, Color4.create(0.40, 1.0, 0.85, 1), 0.70, rotationY), currentDanceEntities)
+  currentDanceTitleSource = 'assets/images/ui/levels/current-game.png'
+  currentDanceTitleEntity = remember(leaderboardTitleEntity(currentDanceTitleSource, boardX, 7.50, titleZ, 6.7, rotationY), currentDanceEntities)
   remember(playerFacingData(textEntity('PLAYER', boardX - 2.45, 6.86, textZ, 5, Color4.create(0.82, 0.86, 1.0, 1), 0.43, rotationY)), currentDanceEntities)
   remember(playerFacingData(textEntity('DANCE RANK', boardX - 0.55, 6.86, textZ, 5, Color4.create(1.0, 0.58, 1.0, 1), 0.41, rotationY)), currentDanceEntities)
   remember(playerFacingData(textEntity('RP POINTS', boardX + 1.32, 6.86, textZ, 5, Color4.create(1.0, 0.82, 0.22, 1), 0.41, rotationY)), currentDanceEntities)
@@ -866,7 +871,8 @@ function buildGlobalRecordsLeaderboard(): void {
   const textZ = 4.12
   const rotationY = 180
 
-  remember(neonTitleEntity('GLOBAL RECORDS', boardX, 8.92, textZ, 8, Color4.create(0.40, 1.0, 0.85, 1), 0.70, rotationY), globalRecordEntities)
+  // 15% larger and lifted by another 8% of its rendered height.
+  remember(leaderboardTitleEntity('assets/images/ui/levels/global-leaderboard.png', boardX, 7.77, textZ, 10.58, rotationY), globalRecordEntities)
 
   const board = engine.addEntity()
   remember(board, globalRecordEntities)
@@ -1118,7 +1124,15 @@ function updateCurrentDancePresentation(dt: number): void {
   setEntityGroupVisible(winnerHighlightEntities, showWinnerHighlight)
 
   if (currentDanceTitleEntity) {
-    TextShape.getMutable(currentDanceTitleEntity).text = gameState.phase === 'playing' ? 'CURRENT DANCE' : 'LAST DANCE'
+    const nextTitleSource = gameState.phase === 'playing'
+      ? 'assets/images/ui/levels/current-game.png'
+      : 'assets/images/ui/levels/last-game.png'
+    if (nextTitleSource !== currentDanceTitleSource) {
+      setLeaderboardTitleImage(currentDanceTitleEntity, nextTitleSource)
+      currentDanceTitleSource = nextTitleSource
+    }
+    // Last Game sits 5% of the title height higher than Current Game.
+    Transform.getMutable(currentDanceTitleEntity).position.y = gameState.phase === 'playing' ? 7.50 : 7.61
   }
 
   if (showWinnerHighlight) updateWinnerHighlight(dt)
