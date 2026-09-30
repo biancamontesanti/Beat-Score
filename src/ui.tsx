@@ -74,6 +74,8 @@ const PUBLIC_MATCH_TITLE = 'assets/images/ui/levels/public-match.png'
 const SOLO_STAGE_TITLE = 'assets/images/ui/levels/solo-stage.png'
 const POINTS_TITLE = 'assets/images/ui/levels/points.png'
 const JUMP_OFF_TITLE = 'assets/images/ui/levels/jump-off.png'
+const POINTS_TITLE_BOUNDS = [229, 155, 1968, 580] as const
+const JUMP_OFF_TITLE_BOUNDS = [187, 163, 2000, 567] as const
 const JUDGMENT_GRADIENT = 'assets/images/ui/judgment-gradient.png'
 const LEADERBOARD_TITLE_TEXTURES = {
   global: 'assets/images/ui/levels/global-leaderboard.png',
@@ -447,6 +449,42 @@ function MenuTitleImage({ src, width, height }: { src: string; width: number; he
     <UiEntity uiTransform={{ width: renderedWidth, height: renderedHeight, pointerFilter: 'none' }}
       uiBackground={{ texture: { src }, textureMode: 'stretch' }} />
   </UiEntity>
+}
+
+function CroppedMenuTitleImage({
+  src,
+  width,
+  height,
+  bounds,
+}: {
+  src: string
+  width: number
+  height: number
+  bounds: readonly [number, number, number, number]
+}): ReactEcs.JSX.Element {
+  const [left, top, right, bottom] = bounds
+  const sourceWidth = 2172
+  const sourceHeight = 724
+  const scale = Math.min(width / (right - left), height / (bottom - top))
+  const renderedWidth = (right - left) * scale
+  const renderedHeight = (bottom - top) * scale
+
+  return (
+    <UiEntity uiTransform={{ width, height, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+      <UiEntity uiTransform={{ positionType: 'relative', width: renderedWidth, height: renderedHeight, overflow: 'hidden', pointerFilter: 'none' }}>
+        <UiEntity
+          uiTransform={{
+            positionType: 'absolute',
+            position: { left: -left * scale, top: -top * scale },
+            width: sourceWidth * scale,
+            height: sourceHeight * scale,
+            pointerFilter: 'none',
+          }}
+          uiBackground={{ texture: { src }, textureMode: 'stretch' }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
 }
 
 function FloatingMenuTitle({ src, panelWidth, height }: { src: string; panelWidth: number; height: number }): ReactEcs.JSX.Element {
@@ -1401,6 +1439,8 @@ function JudgmentDisplay(): ReactEcs.JSX.Element | null {
 // ──────────────────────────────────────────────────────────
 function ScorePanel(): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const pointsWidth = mobile ? 160 : 190
+  const pointsHeight = mobile ? 42 : 48
 
   return (
     <UiEntity
@@ -1408,21 +1448,29 @@ function ScorePanel(): ReactEcs.JSX.Element {
         positionType: 'absolute',
         position: mobile ? { top: 72, right: 12 } : { top: 76, right: 24 },
         width: mobile ? 190 : 225,
-        height: mobile ? 96 : 108,
+        height: mobile ? 104 : 116,
         flexDirection: 'column',
         alignItems: 'flex-end',
-        padding: { top: mobile ? 9 : 10, right: mobile ? 12 : 14, bottom: 10, left: 10 },
+        padding: { top: mobile ? 8 : 9, right: mobile ? 12 : 14, bottom: 8, left: 10 },
         borderRadius: 14,
         borderWidth: 1,
         borderColor: Color4.create(0.30, 0.78, 1.0, 0.70),
       }}
       uiBackground={{ color: Color4.create(0, 0, 0, 0.55) }}
     >
-      <MenuTitleImage
-        src={POINTS_TITLE}
-        width={mobile ? 108 : 122}
-        height={mobile ? 27 : 30}
-      />
+      <UiEntity
+        uiTransform={{
+          positionType: 'absolute',
+          position: { top: -pointsHeight * 0.30, right: mobile ? 9 : 12 },
+          width: pointsWidth,
+          height: pointsHeight,
+          zIndex: 3,
+          pointerFilter: 'none',
+        }}
+      >
+        <CroppedMenuTitleImage src={POINTS_TITLE} width={pointsWidth} height={pointsHeight} bounds={POINTS_TITLE_BOUNDS} />
+      </UiEntity>
+      <UiEntity uiTransform={{ width: '100%', height: mobile ? 25 : 29, flexShrink: 0, pointerFilter: 'none' }} />
       <Label
         key={`score-${gameState.score}`}
         value={String(gameState.score)}
@@ -1609,7 +1657,6 @@ function MatchPositionPanel(): ReactEcs.JSX.Element {
   const localIndex = Math.max(0, entries.findIndex(entry => entry.isLocal))
   const localEntry = entries[localIndex] || entries[0]
   const score = localEntry?.score ?? gameState.score
-  const name = localEntry?.isLocal ? 'YOU' : String(localEntry?.name || 'YOU').slice(0, 10)
   const place = placementLabel(localIndex)
 
   return (
@@ -1628,12 +1675,11 @@ function MatchPositionPanel(): ReactEcs.JSX.Element {
     >
       <PlacementGradientLabel value={place} highlight={localIndex === 0} mobile={mobile} />
       <UiEntity uiTransform={{ width: mobile ? 92 : 114, height: mobile ? 64 : 74, flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start' }}>
-        <Label
-          value={name}
-          fontSize={mobile ? 18 : 22}
-          color={Color4.create(0, 0, 0, 1)}
-          uiTransform={{ width: '100%', height: mobile ? 25 : 30 }}
-          textAlign="middle-left"
+        <CroppedMenuTitleImage
+          src={POINTS_TITLE}
+          width={mobile ? 90 : 112}
+          height={mobile ? 25 : 30}
+          bounds={POINTS_TITLE_BOUNDS}
         />
         <UiEntity
           key={`match-score-${score}`}
@@ -2654,6 +2700,8 @@ function SidePlayMenu(): ReactEcs.JSX.Element {
 
 function JumpOffButton(): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const titleWidth = mobile ? 131 : 145
+  const titleHeight = mobile ? 30 : 33
   return (
     <UiEntity
       uiTransform={{
@@ -2670,10 +2718,11 @@ function JumpOffButton(): ReactEcs.JSX.Element {
       uiBackground={{ color: Color4.create(0.18, 0.02, 0.06, 0.90) }}
       onMouseDown={() => runButtonAction(requestJumpOff)}
     >
-      <MenuTitleImage
+      <CroppedMenuTitleImage
         src={JUMP_OFF_TITLE}
-        width={mobile ? 142 : 158}
-        height={40}
+        width={titleWidth}
+        height={titleHeight}
+        bounds={JUMP_OFF_TITLE_BOUNDS}
       />
     </UiEntity>
   )
