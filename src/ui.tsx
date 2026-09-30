@@ -82,6 +82,7 @@ const LEADERBOARD_TITLE_TEXTURES = {
   last: 'assets/images/ui/levels/last-game.png',
 } as const
 const LEADERBOARD_TITLE_ASPECT = 2172 / 724
+const GLOBAL_LEADERBOARD_TITLE_BOUNDS = [31, 231, 2144, 485] as const
 const JUDGMENT_TEXTURES: Record<JudgmentText, string> = {
   'PERFECT!': 'assets/images/ui/judgment-perfect.png',
   'GREAT!': 'assets/images/ui/judgment-great.png',
@@ -147,6 +148,33 @@ function LeaderboardTitleImage({ title, width, height }: { title: 'global' | 'la
     <UiEntity uiTransform={{ width: imageWidth, height: imageHeight, pointerFilter: 'none' }}
       uiBackground={{ texture: { src: LEADERBOARD_TITLE_TEXTURES[title] }, textureMode: 'stretch' }} />
   </UiEntity>
+}
+
+function FloatingGlobalLeaderboardTitle({ panelWidth, contentWidth }: { panelWidth: number; contentWidth: number }): ReactEcs.JSX.Element {
+  const visibleAspect = (GLOBAL_LEADERBOARD_TITLE_BOUNDS[2] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[0]) /
+    (GLOBAL_LEADERBOARD_TITLE_BOUNDS[3] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[1])
+  const width = Math.min(680, contentWidth * 0.86)
+  const height = width / visibleAspect
+
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: -height * 0.30, left: (panelWidth - width) * 0.5 },
+        width,
+        height,
+        zIndex: 6,
+        pointerFilter: 'none',
+      }}
+    >
+      <CroppedMenuTitleImage
+        src={LEADERBOARD_TITLE_TEXTURES.global}
+        width={width}
+        height={height}
+        bounds={GLOBAL_LEADERBOARD_TITLE_BOUNDS}
+      />
+    </UiEntity>
+  )
 }
 
 function MenuRankStrip({ width, height }: { width: number; height: number }): ReactEcs.JSX.Element {
@@ -1857,7 +1885,7 @@ function RankAvatarBadge(): ReactEcs.JSX.Element {
       <Label
         value={`RP ${gameState.rankPoints}`}
         fontSize={22}
-        color={Color4.create(1, 0.82, 0.22, 1)}
+        color={Color4.White()}
         uiTransform={{ width: '100%', height: 30, flexShrink: 0 }}
         textAlign="middle-center"
       />
@@ -1868,12 +1896,13 @@ function RankAvatarBadge(): ReactEcs.JSX.Element {
 function DailyGoalsPanel(): ReactEcs.JSX.Element {
   const rankPct = `${(gameState.rankProgress * 100).toFixed(1)}%` as PercentUnit
   const panelLeft = isMobile() ? 18 : 64
+  const badgeSize = Math.min(198, Math.max(87.5, getSafeCanvas().height * 0.3375))
 
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 132 + Math.min(158.4, Math.max(70, getSafeCanvas().height * 0.27)) + 50, left: panelLeft },
+        position: { top: 132 + badgeSize + 52, left: panelLeft },
         width: 210,
         height: 134,
         flexDirection: 'column',
@@ -2537,10 +2566,15 @@ function LeaderboardMenuScreen(): ReactEcs.JSX.Element {
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(1, 0.8, 0.22, 0.82) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
+        {leaderboardTab === 'global' && logoHeight > 0 ? <FloatingGlobalLeaderboardTitle panelWidth={width} contentWidth={contentWidth} /> : null}
         <BackButton onClick={returnToLobby} />
         <CloseButton onClick={watchLiveMode} />
         <UiEntity uiTransform={{ width: '100%', height: 56, flexShrink: 0 }} />
-        {logoHeight > 0 ? <LeaderboardTitleImage title={leaderboardTab} width={contentWidth} height={logoHeight - 2} /> : null}
+        {logoHeight > 0
+          ? leaderboardTab === 'global'
+            ? <UiEntity uiTransform={{ width: '100%', height: logoHeight - 2, flexShrink: 0, pointerFilter: 'none' }} />
+            : <LeaderboardTitleImage title={leaderboardTab} width={contentWidth} height={logoHeight - 2} />
+          : null}
         <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { bottom: 8 } }}>
           <LeaderboardTabButton id="global" label="GLOBAL" />
           <LeaderboardTabButton id="last" label="LAST GAME" />

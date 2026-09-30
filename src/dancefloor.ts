@@ -871,8 +871,8 @@ function buildGlobalRecordsLeaderboard(): void {
   const textZ = 4.12
   const rotationY = 180
 
-  // 15% larger and lifted by another 8% of its rendered height.
-  remember(leaderboardTitleEntity('assets/images/ui/levels/global-leaderboard.png', boardX, 7.77, textZ, 10.58, rotationY), globalRecordEntities)
+  // 15% larger and lifted clear of the board header.
+  remember(leaderboardTitleEntity('assets/images/ui/levels/global-leaderboard.png', boardX, 7.95, textZ, 10.58, rotationY), globalRecordEntities)
 
   const board = engine.addEntity()
   remember(board, globalRecordEntities)
