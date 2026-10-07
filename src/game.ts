@@ -16,8 +16,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Schemas } from '@dcl/ecs'
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
-import { isServer } from '@dcl/sdk/network'
-import { registerMessages } from '@dcl/sdk/network/events'
+import { isServer, registerMessages } from '@dcl/sdk/network'
 import { isMobile } from '@dcl/sdk/platform'
 import { getPlayer, onEnterScene, onLeaveScene } from '@dcl/sdk/players'
 import { movePlayerTo, stopEmote, triggerEmote } from '~system/RestrictedActions'
@@ -312,6 +311,7 @@ let playerEmotesDisabled = false
 let sceneEmoteAllowanceUntil = 0
 let lastLocalEmoteTimestamp = -1
 let touchControlsHidden = false
+let jumpOffRequested = false
 let matchRestrictionRefreshTimer = 0
 let cinematicReady = false
 let cinematicCameraActive = false
@@ -905,49 +905,28 @@ function normalizePlayerId(playerId: string): string {
   return playerId.trim().toLowerCase()
 }
 
-function setSoloIsolationActive(active: boolean, force = false): void {
+function setSoloIsolationActive(active: boolean, _force = false): void {
   if (active) {
     const localPlayerId = normalizePlayerId(getPlayer()?.userId || '')
     if (!localPlayerId) return
-    const layout: 'scene' | 'dance' = soloDanceIsolationArmed || (
-      gameState.playMode === 'solo' && !pendingSoloStart
-    )
-      ? 'dance'
-      : 'scene'
-    const layoutChanged = soloIsolationLayout !== layout
-    const previousEntity = soloIsolationEntity
-    // Some Explorer builds do not
-    // re-evaluate avatars when excludeIds is updated. Replacing the entity
-    // forces a fresh Area3D overlap pass instead of mutating stale state.
-    if ((force || layoutChanged) && previousEntity !== engine.RootEntity) {
-      engine.removeEntity(previousEntity)
-      soloIsolationEntity = engine.RootEntity
-    }
-    if (soloIsolationEntity === engine.RootEntity) {
-      soloIsolationEntity = engine.addEntity()
-    }
+    // One scene-wide area for the whole solo session, updated in place. The
+    // Explorer shows every avatar inside an area when that area is removed,
+    // and avatars already inside get no new enter event from a replacement,
+    // so rebuilding the area (or swapping it for a smaller one) unhides them.
+    const layout = 'scene'
     if (
-      !force &&
-      !layoutChanged &&
+      soloIsolationEntity !== engine.RootEntity &&
       soloIsolationPlayerId === localPlayerId &&
       AvatarModifierArea.has(soloIsolationEntity)
     ) return
-    // While preparing solo, cover the scene so no remote avatar can flash in
-    // the audience. Immediately before teleporting, replace it with a compact
-    // volume around the solo slot. Every audience position is outside this
-    // volume, which guarantees an outside -> inside physics transition when
-    // the player first enters the floor (required by some Explorer builds).
-    const position = layout === 'dance'
-      ? Vector3.create(SOLO_DANCE_SLOT.x, 6, SOLO_DANCE_SLOT.z)
-      : Vector3.create(sceneX(16), 16, sceneZ(16))
-    const area = layout === 'dance'
-      ? Vector3.create(8, 12, 8)
-      : Vector3.create(63.8, 32, 63.8)
+    if (soloIsolationEntity === engine.RootEntity) {
+      soloIsolationEntity = engine.addEntity()
+    }
     Transform.createOrReplace(soloIsolationEntity, {
-      position,
+      position: Vector3.create(sceneX(16), 16, sceneZ(16)),
     })
     AvatarModifierArea.createOrReplace(soloIsolationEntity, {
-      area,
+      area: Vector3.create(63.8, 32, 63.8),
       excludeIds: [localPlayerId],
       modifiers: [
         AvatarModifierType.AMT_HIDE_AVATARS,
@@ -1050,18 +1029,15 @@ function syncAuthoritativeSoloVisibility(forceRecreate = false): void {
 
   const excludeIds = [...visiblePlayerIds].filter(id => id && id !== 'local-player').sort()
   const visibilitySignature = `${[...authoritativeSoloPlayerIds].sort().join(',')}|${excludeIds.join(',')}`
+  // Update the existing area in place instead of rebuilding it: the Explorer
+  // re-applies excludeIds to avatars already inside, while removing the area
+  // would show every avatar it held without hiding them again.
+  void forceRecreate
   if (
-    !forceRecreate &&
     visibilitySignature === authoritativeSoloVisibilitySignature &&
     soloRosterVisibilityEntity !== engine.RootEntity &&
     AvatarModifierArea.has(soloRosterVisibilityEntity)
   ) return
-
-  const previousEntity = soloRosterVisibilityEntity
-  if ((forceRecreate || visibilitySignature !== authoritativeSoloVisibilitySignature) && previousEntity !== engine.RootEntity) {
-    engine.removeEntity(previousEntity)
-    soloRosterVisibilityEntity = engine.RootEntity
-  }
   if (soloRosterVisibilityEntity === engine.RootEntity) {
     soloRosterVisibilityEntity = engine.addEntity()
   }
@@ -2577,7 +2553,9 @@ function refreshActiveMatchRestrictions(dt: number): void {
   matchRestrictionRefreshTimer = 0.5
   setPlayerMovementLocked(true, true, true)
   setNativeTouchControlsHidden(true, true)
-  setMatchPassportLock(true, true)
+  // Solo uses its own scene-wide area. Re-creating the passport area here and
+  // deleting it again next frame makes the Explorer show every avatar inside.
+  if (gameState.playMode !== 'solo') setMatchPassportLock(true, true)
 }
 
 function initCinematicCamera(): void {
@@ -3204,6 +3182,7 @@ export function joinMultiplayerMatch(): void {
 }
 
 export function returnToLobby(): void {
+  jumpOffRequested = false
   resultsPresentation.elapsed = 0
   resultsPresentation.remaining = 0
   cancelPendingSoloStart()
@@ -3241,6 +3220,14 @@ export function returnToLobby(): void {
   teleportPlayerToAudienceSpot()
   stopMatchMusic()
   publishScore(false)
+}
+
+// UI touch handlers must not tear down the active mobile controls while the
+// same pointer event is still being dispatched. Queue the exit and consume it
+// at the beginning of the next engine frame instead.
+export function requestJumpOff(): void {
+  if (gameState.phase !== 'playing' || jumpOffRequested) return
+  jumpOffRequested = true
 }
 
 export function watchLiveMode(): void {
@@ -3321,8 +3308,8 @@ export function openLeaderboardMenu(): void {
   resetMultiplayerReadyWindow()
   setPlayerMovementLocked(false)
   setNativeTouchControlsHidden(false)
-  setCinematicCameraActive(false)
-  teleportPlayerToAudienceSpot()
+  // This is a UI-only action: preserve the avatar transform and the exact
+  // camera/view the player had when they opened the leaderboard.
   stopMatchMusic()
   publishScore(false)
 }
@@ -3465,6 +3452,11 @@ export function initGame(): void {
   initCinematicCamera()
 
   engine.addSystem((dt: number) => {
+    if (jumpOffRequested) {
+      jumpOffRequested = false
+      returnToLobby()
+      return
+    }
     refreshDailyGoals()
     tickRankPresence(dt)
     const soloPlaying = gameState.playMode === 'solo' && gameState.phase === 'playing'

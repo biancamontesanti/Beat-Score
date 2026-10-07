@@ -20,6 +20,7 @@ import {
   openLeaderboardMenu,
   openPlayMenu,
   readyForMultiplayer,
+  requestJumpOff,
   returnToLobby,
   startSoloMode,
   type JudgmentText,
@@ -66,8 +67,22 @@ const DIR_KEY: Record<Direction, string> = {
 
 type PercentUnit = `${number}%`
 
-const BEAT_SCORE_LOGO = 'assets/images/beatscore.png'
+const BEAT_SCORE_LOGO = 'assets/images/beatscore-v3.png'
+const BEAT_SCORE_LOGO_ASPECT = 3308 / 1902
+const MENU_TITLE_ASPECT = 2172 / 724
+const PUBLIC_MATCH_TITLE = 'assets/images/ui/levels/public-match.png'
+const SOLO_STAGE_TITLE = 'assets/images/ui/levels/solo-stage.png'
+const POINTS_TITLE = 'assets/images/ui/levels/points.png'
+const JUMP_OFF_TITLE = 'assets/images/ui/levels/jump-off.png'
+const POINTS_TITLE_BOUNDS = [229, 155, 1968, 580] as const
+const JUMP_OFF_TITLE_BOUNDS = [187, 163, 2000, 567] as const
 const JUDGMENT_GRADIENT = 'assets/images/ui/judgment-gradient.png'
+const LEADERBOARD_TITLE_TEXTURES = {
+  global: 'assets/images/ui/levels/global-leaderboard.png',
+  last: 'assets/images/ui/levels/last-game.png',
+} as const
+const LEADERBOARD_TITLE_ASPECT = 2172 / 724
+const GLOBAL_LEADERBOARD_TITLE_BOUNDS = [31, 231, 2144, 485] as const
 const JUDGMENT_TEXTURES: Record<JudgmentText, string> = {
   'PERFECT!': 'assets/images/ui/judgment-perfect.png',
   'GREAT!': 'assets/images/ui/judgment-great.png',
@@ -124,6 +139,42 @@ function LevelTitlePreload(): ReactEcs.JSX.Element {
     {Object.values(LEVEL_TITLES).map(sprite => <UiEntity key={`preload-title-${sprite.file}`} uiTransform={{ positionType: 'absolute', width: 1, height: 1, pointerFilter: 'none' }}
       uiBackground={{ texture: { src: `assets/images/ui/levels/${sprite.file}.png` }, textureMode: 'stretch', color: Color4.create(1, 1, 1, 0) }} />)}
   </UiEntity>
+}
+
+function LeaderboardTitleImage({ title, width, height }: { title: 'global' | 'last'; width: number; height: number }): ReactEcs.JSX.Element {
+  const imageWidth = Math.min(width, height * LEADERBOARD_TITLE_ASPECT)
+  const imageHeight = imageWidth / LEADERBOARD_TITLE_ASPECT
+  return <UiEntity uiTransform={{ width, height, flexShrink: 0, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ width: imageWidth, height: imageHeight, pointerFilter: 'none' }}
+      uiBackground={{ texture: { src: LEADERBOARD_TITLE_TEXTURES[title] }, textureMode: 'stretch' }} />
+  </UiEntity>
+}
+
+function FloatingGlobalLeaderboardTitle({ panelWidth, contentWidth }: { panelWidth: number; contentWidth: number }): ReactEcs.JSX.Element {
+  const visibleAspect = (GLOBAL_LEADERBOARD_TITLE_BOUNDS[2] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[0]) /
+    (GLOBAL_LEADERBOARD_TITLE_BOUNDS[3] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[1])
+  const width = Math.min(680, contentWidth * 0.86)
+  const height = width / visibleAspect
+
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: -height * 0.30, left: (panelWidth - width) * 0.5 },
+        width,
+        height,
+        zIndex: 6,
+        pointerFilter: 'none',
+      }}
+    >
+      <CroppedMenuTitleImage
+        src={LEADERBOARD_TITLE_TEXTURES.global}
+        width={width}
+        height={height}
+        bounds={GLOBAL_LEADERBOARD_TITLE_BOUNDS}
+      />
+    </UiEntity>
+  )
 }
 
 function MenuRankStrip({ width, height }: { width: number; height: number }): ReactEcs.JSX.Element {
@@ -402,6 +453,83 @@ function BeatScoreLogo({ compact = false, maxHeight }: { compact?: boolean; maxH
   )
 }
 
+function FloatingBeatScoreLogo({ panelWidth, height, outset = 0.58 }: { panelWidth: number; height: number; outset?: number }): ReactEcs.JSX.Element {
+  const width = height * BEAT_SCORE_LOGO_ASPECT
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: -height * outset, left: (panelWidth - width) * 0.5 },
+        width,
+        height,
+        zIndex: 4,
+        pointerFilter: 'none',
+      }}
+      uiBackground={{ texture: { src: BEAT_SCORE_LOGO }, textureMode: 'stretch' }}
+    />
+  )
+}
+
+function MenuTitleImage({ src, width, height }: { src: string; width: number; height: number }): ReactEcs.JSX.Element {
+  const renderedWidth = Math.min(width, height * MENU_TITLE_ASPECT)
+  const renderedHeight = renderedWidth / MENU_TITLE_ASPECT
+  return <UiEntity uiTransform={{ width, height, flexShrink: 0, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+    <UiEntity uiTransform={{ width: renderedWidth, height: renderedHeight, pointerFilter: 'none' }}
+      uiBackground={{ texture: { src }, textureMode: 'stretch' }} />
+  </UiEntity>
+}
+
+function CroppedMenuTitleImage({
+  src,
+  width,
+  height,
+  bounds,
+}: {
+  src: string
+  width: number
+  height: number
+  bounds: readonly [number, number, number, number]
+}): ReactEcs.JSX.Element {
+  const [left, top, right, bottom] = bounds
+  const sourceWidth = 2172
+  const sourceHeight = 724
+  const scale = Math.min(width / (right - left), height / (bottom - top))
+  const renderedWidth = (right - left) * scale
+  const renderedHeight = (bottom - top) * scale
+
+  return (
+    <UiEntity uiTransform={{ width, height, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
+      <UiEntity uiTransform={{ positionType: 'relative', width: renderedWidth, height: renderedHeight, overflow: 'hidden', pointerFilter: 'none' }}>
+        <UiEntity
+          uiTransform={{
+            positionType: 'absolute',
+            position: { left: -left * scale, top: -top * scale },
+            width: sourceWidth * scale,
+            height: sourceHeight * scale,
+            pointerFilter: 'none',
+          }}
+          uiBackground={{ texture: { src }, textureMode: 'stretch' }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function FloatingMenuTitle({ src, panelWidth, height }: { src: string; panelWidth: number; height: number }): ReactEcs.JSX.Element {
+  const width = Math.min(panelWidth * 0.72, height * MENU_TITLE_ASPECT)
+  return <UiEntity
+    uiTransform={{
+      positionType: 'absolute',
+      position: { top: -height * 0.5, left: (panelWidth - width) * 0.5 },
+      width,
+      height: width / MENU_TITLE_ASPECT,
+      zIndex: 5,
+      pointerFilter: 'none',
+    }}
+    uiBackground={{ texture: { src }, textureMode: 'stretch' }}
+  />
+}
+
 function GradientFill({ tone, borderRadius = 16 }: { tone: ButtonTone; borderRadius?: number }): ReactEcs.JSX.Element {
   return (
     <UiEntity
@@ -502,7 +630,7 @@ function KeyboardKey({
   sparkleProgress?: number
 }): ReactEcs.JSX.Element {
   const mobile = isMobile()
-  const size = mobile ? 48 : 56
+  const size = mobile ? 62 : 70
   const arrowTexture = CARDINAL_ARROW_TEXTURE[symbol]
   const keyColor = completed ? HIT_COLOR : color
   const background = completed
@@ -512,12 +640,12 @@ function KeyboardKey({
   return (
     <UiEntity
       uiTransform={{
-        width: wide ? (mobile ? 150 : 210) : size,
-        height: size,
+        width: wide ? (mobile ? 148 : 172) : size,
+        height: wide ? (mobile ? 52 : 54) : size,
         alignItems: 'center',
         justifyContent: 'center',
         margin: { left: mobile ? 3 : 5, right: mobile ? 3 : 5 },
-        borderRadius: 12,
+        borderRadius: 14,
         borderWidth: active ? 4 : 2,
         borderColor: keyColor,
       }}
@@ -525,11 +653,11 @@ function KeyboardKey({
     >
       {!wide && arrowTexture ? (
         <UiEntity
-          uiTransform={{ width: mobile ? 38 : 42, height: mobile ? 38 : 42, pointerFilter: 'none' }}
+          uiTransform={{ width: mobile ? 50 : 56, height: mobile ? 50 : 56, pointerFilter: 'none' }}
           uiBackground={{ texture: { src: arrowTexture }, textureMode: 'stretch', color: completed ? HIT_COLOR : Color4.White() }}
         />
       ) : (
-        <Label value={symbol} font="sans-serif" fontSize={mobile ? 27 : 25} color={completed ? HIT_COLOR : Color4.White()}
+        <Label value={symbol} font="sans-serif" fontSize={wide ? (mobile ? 21 : 20) : (mobile ? 27 : 25)} color={completed ? HIT_COLOR : Color4.White()}
           uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }} textAlign="middle-center" />
       )}
       {sparkleProgress !== undefined ? (
@@ -548,11 +676,11 @@ function KeyboardKey({
 
 function TutorialProgress(): ReactEcs.JSX.Element {
   return (
-    <UiEntity uiTransform={{ width: 176, height: 12, flexDirection: 'row', justifyContent: 'space-between', margin: { bottom: 12 } }}>
+    <UiEntity uiTransform={{ width: 164, height: 8, flexDirection: 'row', justifyContent: 'space-between', margin: { bottom: 8 } }}>
       {[0, 1, 2, 3, 4].map(index => (
         <UiEntity
           key={`tutorial-progress-${index}`}
-          uiTransform={{ width: index === tutorialPage ? 40 : 22, height: 7, borderRadius: 4 }}
+          uiTransform={{ width: index === tutorialPage ? 42 : 21, height: 6, borderRadius: 3 }}
           uiBackground={{
             color: index === tutorialPage
               ? Color4.create(1.0, 0.80, 0.20, 1)
@@ -566,7 +694,7 @@ function TutorialProgress(): ReactEcs.JSX.Element {
 
 function SequenceVisual(): ReactEcs.JSX.Element {
   return (
-    <UiEntity uiTransform={{ width: '100%', height: isMobile() ? 58 : 78, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+    <UiEntity uiTransform={{ width: '100%', height: isMobile() ? 72 : 84, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
       <KeyboardKey symbol="◀" color={DIR_COLOR.left} />
       <KeyboardKey symbol="▲" color={DIR_COLOR.up} />
       <KeyboardKey symbol="▶" color={DIR_COLOR.right} />
@@ -589,8 +717,8 @@ function SequenceCompletionVisual(): ReactEcs.JSX.Element {
   const completedCount = Math.min(sequence.length, phase)
 
   return (
-    <UiEntity uiTransform={{ width: '100%', height: mobile ? 112 : 118, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <UiEntity uiTransform={{ width: '100%', height: mobile ? 58 : 62, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+    <UiEntity uiTransform={{ width: '100%', height: mobile ? 128 : 136, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <UiEntity uiTransform={{ width: '100%', height: mobile ? 70 : 76, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
         {sequence.map((key, index) => (
           <KeyboardKey
             symbol={key.symbol}
@@ -603,7 +731,7 @@ function SequenceCompletionVisual(): ReactEcs.JSX.Element {
       </UiEntity>
       <Label
         value={completedCount === sequence.length ? 'SEQUENCE COMPLETE' : `INPUT ${completedCount + 1} OF ${sequence.length}`}
-        fontSize={mobile ? 20 : 16}
+        fontSize={mobile ? 20 : 18}
         color={completedCount === sequence.length ? HIT_COLOR : Color4.create(0.70, 0.82, 0.96, 1)}
         uiTransform={{ width: '100%', height: mobile ? 30 : 26, margin: { top: 8 } }}
         textAlign="middle-center"
@@ -651,10 +779,10 @@ function TimingVisual(): ReactEcs.JSX.Element {
         </UiEntity>
       ) : (
         <UiEntity uiTransform={{ width: '100%', height: 79, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: { top: 8 } }}>
-          <UiEntity uiTransform={{ width: 230, height: 56, positionType: 'relative', alignItems: 'center', justifyContent: 'center' }}>
+          <UiEntity uiTransform={{ width: 184, height: 54, positionType: 'relative', alignItems: 'center', justifyContent: 'center' }}>
             <KeyboardKey symbol="SPACE" color={Color4.create(1, 0.48, 0.84, 1)} wide completed={hitPressed} />
             {hitPressed ? (
-              <SparkleBurst progress={hitProgress} color={HIT_COLOR} width={230} height={56} distance={58} count={12} />
+              <SparkleBurst progress={hitProgress} color={HIT_COLOR} width={184} height={54} distance={48} count={12} />
             ) : null}
           </UiEntity>
           <Label value="PRESS ONCE — DO NOT HOLD" fontSize={15} color={Color4.create(0.74, 0.84, 0.96, 1)}
@@ -817,9 +945,15 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
   }
 
   const short = height < 260
-  const titleHeight = short ? 24 : 42
-  const descriptionHeight = short ? 30 : 52
-  const visualHeight = Math.max(24, height - titleHeight - descriptionHeight - 52 - (short ? 0 : 48))
+  const progressHeight = short ? 0 : 16
+  const navHeight = mobile ? 44 : 40
+  const navMargin = short ? 4 : 8
+  const panelHeight = Math.max(120, height - progressHeight - navHeight - navMargin)
+  const panelPadding = short ? 6 : mobile ? 10 : 12
+  const stepHeight = short ? 0 : 22
+  const titleHeight = short ? 30 : mobile ? 40 : 44
+  const descriptionHeight = short ? 34 : mobile ? 44 : 46
+  const visualHeight = Math.max(30, panelHeight - panelPadding * 2 - stepHeight - titleHeight - descriptionHeight)
   const compactExample = width < 500 || visualHeight < 150
   const step = Math.floor(((Date.now() - tutorialSequenceStartedAt) / 520) % 7)
   const marker = (Date.now() % 3400) / 3400
@@ -827,30 +961,33 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
   return (
     <UiEntity uiTransform={{ width: '100%', height, flexShrink: 0, flexDirection: 'column', alignItems: 'center' }}>
       {!short ? <TutorialProgress /> : null}
-      {!short ? <Label value={`STEP ${tutorialPage + 1}`} fontSize={18} color={HIT_COLOR} uiTransform={{ width: '100%', height: 24 }} textAlign="middle-center" /> : null}
-      <Label value={titles[tutorialPage]} fontSize={Math.min(short ? 20 : 34, width / Math.max(10, titles[tutorialPage].length * 0.62))} color={Color4.White()} uiTransform={{ width: '100%', height: titleHeight, flexShrink: 0 }} textAlign="middle-center" />
-      <Label value={descriptions[tutorialPage]} fontSize={short ? 12 : Math.min(18, width / 20)} color={Color4.create(0.74, 0.84, 0.96, 1)} uiTransform={{ width: '100%', height: descriptionHeight, flexShrink: 0 }} textAlign="middle-center" />
-      <UiEntity uiTransform={{ width: '100%', height: visualHeight, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+      <UiEntity uiTransform={{ width: '100%', height: panelHeight, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding: panelPadding, borderRadius: short ? 12 : 18, overflow: 'hidden' }}
+        uiBackground={{ color: Color4.create(0.025, 0.035, 0.10, 0.76) }}>
+        {!short ? <Label value={`STEP ${tutorialPage + 1}  /  5`} fontSize={mobile ? 16 : 17} color={HIT_COLOR} uiTransform={{ width: '100%', height: stepHeight }} textAlign="middle-center" /> : null}
+        <Label value={titles[tutorialPage]} fontSize={Math.min(short ? 22 : mobile ? 32 : 36, width / Math.max(9, titles[tutorialPage].length * 0.56))} color={Color4.White()} uiTransform={{ width: '100%', height: titleHeight, flexShrink: 0 }} textAlign="middle-center" />
+        <Label value={descriptions[tutorialPage]} fontSize={short ? 14 : Math.min(mobile ? 19 : 20, width / 18)} color={Color4.create(0.78, 0.87, 0.98, 1)} uiTransform={{ width: '94%', height: descriptionHeight, flexShrink: 0 }} textAlign="middle-center" />
+        <UiEntity uiTransform={{ width: '100%', height: visualHeight, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
         {!compactExample ? (tutorialPage === 0 ? <SequenceVisual /> : tutorialPage === 1 ? <SequenceCompletionVisual /> : tutorialPage === 2 ? <TimingVisual /> : tutorialPage === 3 ? <ReverseStyleVisual /> : <JudgmentGuideVisual />) : tutorialPage === 2 ? (
-          <UiEntity uiTransform={{ width: '90%', height: Math.min(34, visualHeight - 4), positionType: 'relative', overflow: 'hidden', borderRadius: 14 }} uiBackground={{ color: Color4.create(0.03, 0.04, 0.12, 1) }}>
+          <UiEntity uiTransform={{ width: '92%', height: Math.min(mobile ? 42 : 38, visualHeight - 4), positionType: 'relative', overflow: 'hidden', borderRadius: 14 }} uiBackground={{ color: Color4.create(0.03, 0.04, 0.12, 1) }}>
             <UiEntity uiTransform={{ positionType: 'absolute', position: { left: '72%', top: 0 }, width: '20%', height: '100%' }} uiBackground={{ texture: { src: JUDGMENT_GRADIENT }, textureMode: 'stretch' }} />
             <UiEntity uiTransform={{ positionType: 'absolute', position: { left: `${5 + Math.min(1, marker / 0.68) * 74}%` as PercentUnit, top: 2 }, width: Math.min(26, visualHeight - 8), height: Math.min(26, visualHeight - 8), borderRadius: 14 }} uiBackground={{ color: marker > 0.68 ? HIT_COLOR : DIR_COLOR.up }} />
           </UiEntity>
-        ) : tutorialPage === 4 ? <UiEntity uiTransform={{ width: '100%', height: Math.min(42, visualHeight), flexDirection: 'row', justifyContent: 'space-between' }}>
+        ) : tutorialPage === 4 ? <UiEntity uiTransform={{ width: '100%', height: Math.min(54, visualHeight), flexDirection: 'row', justifyContent: 'space-between' }}>
           {(['GOOD!', 'COOL!', 'GREAT!', 'PERFECT!'] as JudgmentText[]).map(text => <UiEntity key={text} uiTransform={{ width: '24%', height: '100%' }} uiBackground={{ texture: { src: JUDGMENT_TEXTURES[text] }, textureMode: 'stretch' }} />)}
-        </UiEntity> : <UiEntity uiTransform={{ width: '100%', height: Math.min(56, visualHeight), flexDirection: 'row', justifyContent: 'center' }}>
+        </UiEntity> : <UiEntity uiTransform={{ width: '100%', height: Math.min(mobile ? 70 : 76, visualHeight), flexDirection: 'row', justifyContent: 'center' }}>
           {inputDirections.map((direction, index) => {
             const reverse = tutorialPage === 3 && (index === 0 || index === 2)
             const complete = tutorialPage > 0 && index < step
             const display = reverse && !complete ? (direction === 'left' ? 'right' : 'left') : direction
-            const size = Math.min(50, visualHeight - 4, (width - 32) / 4)
+            const size = Math.min(mobile ? 62 : 68, visualHeight - 4, (width - 32) / 4)
             return <UiEntity key={direction} uiTransform={{ width: size, height: size, flexShrink: 0, margin: { left: 4, right: 4 }, borderRadius: 8, borderWidth: 2, borderColor: complete ? HIT_COLOR : reverse ? REVERSE_COLOR : DIR_COLOR[direction], padding: 4 }} uiBackground={{ texture: { src: CARDINAL_ARROW_TEXTURE[DIR_SYMBOL[display]] }, textureMode: 'stretch', color: complete ? HIT_COLOR : Color4.White() }} />
           })}
         </UiEntity>}
+        </UiEntity>
       </UiEntity>
-      <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, flexDirection: 'row', justifyContent: 'space-between', margin: { top: 8 } }}>
-        <MenuButton label={tutorialPage === 0 ? 'SKIP' : 'BACK'} tone="red" onClick={tutorialPage === 0 ? skipTutorial : previousTutorialPage} width="36%" height={44} fontSize={18} />
-        <MenuButton label={tutorialPage === 4 ? 'SHOW MENU' : 'NEXT'} tone={tutorialPage === 4 ? 'gold' : 'cyan'} onClick={nextTutorialPage} width="60%" height={44} fontSize={Math.min(22, width * 0.60 / 7)} />
+      <UiEntity uiTransform={{ width: '90%', height: navHeight, flexShrink: 0, flexDirection: 'row', justifyContent: 'space-between', margin: { top: navMargin } }}>
+        <MenuButton label={tutorialPage === 0 ? 'SKIP' : 'BACK'} tone="magenta" onClick={tutorialPage === 0 ? skipTutorial : previousTutorialPage} width="32%" height={navHeight} fontSize={mobile ? 18 : 17} borderRadius={13} />
+        <MenuButton label={tutorialPage === 4 ? 'SHOW MENU' : 'NEXT'} tone={tutorialPage === 4 ? 'gold' : 'cyan'} onClick={nextTutorialPage} width="56%" height={navHeight} fontSize={Math.min(mobile ? 21 : 20, width * 0.56 / 7)} borderRadius={13} />
       </UiEntity>
     </UiEntity>
   )
@@ -932,7 +1069,7 @@ function ArrowBox({
   sparkleProgress?: number
 }): ReactEcs.JSX.Element {
   const mobile = isMobile()
-  const boxSize = mobile ? 50 : 58
+  const boxSize = mobile ? 62 : 68
   const c = inverted ? REVERSE_COLOR : DIR_COLOR[displayDirection]
   const sym = state === 'done' && inverted ? DIR_SYMBOL[inputDirection] : DIR_SYMBOL[displayDirection]
   const arrowTexture = CARDINAL_ARROW_TEXTURE[sym]
@@ -971,8 +1108,8 @@ function ArrowBox({
   return (
     <UiEntity
       uiTransform={{
-        width: mobile ? 50 : 58,
-        height: mobile ? 50 : 58,
+        width: boxSize,
+        height: boxSize,
         margin: { left: mobile ? 2 : 3, right: mobile ? 2 : 3 },
         alignItems: 'center',
         justifyContent: 'center',
@@ -1330,6 +1467,8 @@ function JudgmentDisplay(): ReactEcs.JSX.Element | null {
 // ──────────────────────────────────────────────────────────
 function ScorePanel(): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const pointsWidth = mobile ? 160 : 190
+  const pointsHeight = mobile ? 42 : 48
 
   return (
     <UiEntity
@@ -1337,23 +1476,29 @@ function ScorePanel(): ReactEcs.JSX.Element {
         positionType: 'absolute',
         position: mobile ? { top: 72, right: 12 } : { top: 76, right: 24 },
         width: mobile ? 190 : 225,
-        height: mobile ? 96 : 108,
+        height: mobile ? 104 : 116,
         flexDirection: 'column',
         alignItems: 'flex-end',
-        padding: { top: mobile ? 9 : 10, right: mobile ? 12 : 14, bottom: 10, left: 10 },
+        padding: { top: mobile ? 8 : 9, right: mobile ? 12 : 14, bottom: 8, left: 10 },
         borderRadius: 14,
         borderWidth: 1,
         borderColor: Color4.create(0.30, 0.78, 1.0, 0.70),
       }}
       uiBackground={{ color: Color4.create(0, 0, 0, 0.55) }}
     >
-      <Label
-        value="POINTS"
-        fontSize={mobile ? 17 : 19}
-        color={Color4.create(0.35, 0.9, 1.0, 1)}
-        uiTransform={{ width: '100%', height: mobile ? 20 : 22 }}
-        textAlign="middle-right"
-      />
+      <UiEntity
+        uiTransform={{
+          positionType: 'absolute',
+          position: { top: -pointsHeight * 0.30, right: mobile ? 9 : 12 },
+          width: pointsWidth,
+          height: pointsHeight,
+          zIndex: 3,
+          pointerFilter: 'none',
+        }}
+      >
+        <CroppedMenuTitleImage src={POINTS_TITLE} width={pointsWidth} height={pointsHeight} bounds={POINTS_TITLE_BOUNDS} />
+      </UiEntity>
+      <UiEntity uiTransform={{ width: '100%', height: mobile ? 25 : 29, flexShrink: 0, pointerFilter: 'none' }} />
       <Label
         key={`score-${gameState.score}`}
         value={String(gameState.score)}
@@ -1540,7 +1685,6 @@ function MatchPositionPanel(): ReactEcs.JSX.Element {
   const localIndex = Math.max(0, entries.findIndex(entry => entry.isLocal))
   const localEntry = entries[localIndex] || entries[0]
   const score = localEntry?.score ?? gameState.score
-  const name = localEntry?.isLocal ? 'YOU' : String(localEntry?.name || 'YOU').slice(0, 10)
   const place = placementLabel(localIndex)
 
   return (
@@ -1559,12 +1703,11 @@ function MatchPositionPanel(): ReactEcs.JSX.Element {
     >
       <PlacementGradientLabel value={place} highlight={localIndex === 0} mobile={mobile} />
       <UiEntity uiTransform={{ width: mobile ? 92 : 114, height: mobile ? 64 : 74, flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start' }}>
-        <Label
-          value={name}
-          fontSize={mobile ? 18 : 22}
-          color={Color4.create(0, 0, 0, 1)}
-          uiTransform={{ width: '100%', height: mobile ? 25 : 30 }}
-          textAlign="middle-left"
+        <CroppedMenuTitleImage
+          src={POINTS_TITLE}
+          width={mobile ? 90 : 112}
+          height={mobile ? 25 : 30}
+          bounds={POINTS_TITLE_BOUNDS}
         />
         <UiEntity
           key={`match-score-${score}`}
@@ -1723,14 +1866,14 @@ function ReadyPlayersPanel({ width = Math.min(650, getSafeCanvas().width - 32), 
 
 function RankAvatarBadge(): ReactEcs.JSX.Element {
   const panelLeft = isMobile() ? 18 : 64
-  const badgeSize = Math.min(158.4, Math.max(70, getSafeCanvas().height * 0.27))
+  const badgeSize = Math.min(198, Math.max(87.5, getSafeCanvas().height * 0.3375))
 
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
         position: { top: 132, left: panelLeft },
-        width: 210,
+        width: 248,
         height: badgeSize + 42,
         flexDirection: 'column',
         alignItems: 'center',
@@ -1742,7 +1885,7 @@ function RankAvatarBadge(): ReactEcs.JSX.Element {
       <Label
         value={`RP ${gameState.rankPoints}`}
         fontSize={22}
-        color={Color4.create(1, 0.82, 0.22, 1)}
+        color={Color4.White()}
         uiTransform={{ width: '100%', height: 30, flexShrink: 0 }}
         textAlign="middle-center"
       />
@@ -1753,12 +1896,13 @@ function RankAvatarBadge(): ReactEcs.JSX.Element {
 function DailyGoalsPanel(): ReactEcs.JSX.Element {
   const rankPct = `${(gameState.rankProgress * 100).toFixed(1)}%` as PercentUnit
   const panelLeft = isMobile() ? 18 : 64
+  const badgeSize = Math.min(198, Math.max(87.5, getSafeCanvas().height * 0.3375))
 
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 132 + Math.min(158.4, Math.max(70, getSafeCanvas().height * 0.27)) + 50, left: panelLeft },
+        position: { top: 132 + badgeSize + 52, left: panelLeft },
         width: 210,
         height: 134,
         flexDirection: 'column',
@@ -1812,7 +1956,7 @@ function DailyGoalsMenuCard({ compact = false, width, height }: { compact?: bool
   const mobile = isMobile()
   const rankPct = `${(gameState.rankProgress * 100).toFixed(1)}%` as PercentUnit
   const cardHeight = height ?? (compact ? (mobile ? 116 : 144) : mobile ? 136 : 158)
-  const titleHeight = Math.min(compact ? 22 : 30, cardHeight * 0.20)
+  const titleHeight = Math.min(compact ? (mobile ? 26 : 22) : 30, cardHeight * (mobile ? 0.23 : 0.20))
   const verticalPadding = compact ? (mobile ? 8 : 12) : mobile ? 10 : 16
   const progressHeight = compact || mobile ? 6 : 8
   const progressMargin = compact ? 4 : mobile ? 3 : 6
@@ -1834,7 +1978,7 @@ function DailyGoalsMenuCard({ compact = false, width, height }: { compact?: bool
     >
       <Label
         value={compact ? 'GOALS' : 'DAILY GOALS'}
-        fontSize={Math.min(compact ? 18 : 22, titleHeight * 0.9)}
+        fontSize={Math.min(compact ? (mobile ? 21 : 18) : mobile ? 24 : 22, titleHeight * 0.9)}
         color={Color4.create(0.52, 0.92, 1, 1)}
         uiTransform={{ width: '100%', height: titleHeight }}
         textAlign="middle-left"
@@ -1850,14 +1994,14 @@ function DailyGoalsMenuCard({ compact = false, width, height }: { compact?: bool
         >
           <Label
             value={goal.completed ? `${goal.label} DONE` : goal.label}
-            fontSize={Math.min(compact ? 15 : 17, rowHeight * 0.75, contentWidth * 0.64 / Math.max(8, (goal.label.length + (goal.completed ? 5 : 0)) * 0.6))}
+            fontSize={Math.min(compact ? (mobile ? 17 : 15) : mobile ? 19 : 17, rowHeight * 0.78, contentWidth * 0.64 / Math.max(8, (goal.label.length + (goal.completed ? 5 : 0)) * 0.6))}
             color={goal.completed ? Color4.create(0.42, 1, 0.58, 1) : Color4.create(0.82, 0.82, 0.9, 1)}
             uiTransform={{ width: compact ? '64%' : mobile ? '66%' : '70%', height: '100%' }}
             textAlign="middle-left"
           />
           <Label
             value={goal.completed ? `+${goal.rewardRp}` : `${goal.progress}/${goal.target}`}
-            fontSize={Math.min(compact ? 15 : 17, rowHeight * 0.75)}
+            fontSize={Math.min(compact ? (mobile ? 17 : 15) : mobile ? 19 : 17, rowHeight * 0.78)}
             color={Color4.create(1, 0.82, 0.22, 1)}
             uiTransform={{ width: compact ? '34%' : mobile ? '32%' : '28%', height: '100%' }}
             textAlign="middle-right"
@@ -2230,13 +2374,16 @@ function KeyHints(): ReactEcs.JSX.Element {
 function LobbyChoiceScreen(): ReactEcs.JSX.Element {
   const safe = getSafeCanvas()
   const width = Math.min(560, safe.width)
-  const height = Math.min(680, safe.height)
-  const short = height < 400
+  const short = safe.height < 520
+  const logoHeight = short ? Math.min(110, width * 0.24) : Math.min(290, width * 0.52)
+  const logoOutset = short ? logoHeight * 0.44 : logoHeight * 0.62
+  const maxPanelHeight = tutorialPage < 5 ? 590 : 620
+  const height = Math.min(short ? 400 : maxPanelHeight, Math.max(260, safe.height - logoOutset - 8))
   const padding = short ? 8 : 12
   const contentWidth = width - padding * 2 - 4
-  const logoHeight = short ? 24 : Math.min(167, height * 0.20)
+  const logoInsetHeight = short ? logoHeight * 0.58 : logoHeight * 0.40
   const rankHeight = tutorialPage < 5 ? 0 : short ? 28 : 40
-  const bodyHeight = height - padding * 2 - 4 - logoHeight - 4 - rankHeight
+  const bodyHeight = height - padding * 2 - 4 - logoInsetHeight - rankHeight
   const replayTutorial = (): void => { playButtonSound(); tutorialPage = 0; tutorialSequenceStartedAt = Date.now() }
   const buttons = <UiEntity uiTransform={{ width: short ? '54%' : '100%', height: short ? bodyHeight : 148, flexShrink: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
     <MenuButton label="DANCE" tone="cyan" onClick={openPlayMenu} width="100%" height={44} fontSize={24} marginBottom={short ? 3 : 6} />
@@ -2245,16 +2392,23 @@ function LobbyChoiceScreen(): ReactEcs.JSX.Element {
   </UiEntity>
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(0.46, 0.58, 1, 0.78) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
+      <UiEntity uiTransform={{ positionType: 'relative', position: { top: logoOutset * 0.5 }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(0.46, 0.58, 1, 0.78) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
+        <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={short ? 0.44 : 0.62} />
         <CloseButton onClick={watchLiveMode} />
-        <BeatScoreLogo maxHeight={logoHeight} />
+        <UiEntity uiTransform={{ width: '100%', height: logoInsetHeight, flexShrink: 0, pointerFilter: 'none' }} />
         {tutorialPage >= 5 ? <MenuRankText width={contentWidth} height={rankHeight} /> : null}
         {tutorialPage < 5 ? <TutorialSlide width={contentWidth} height={bodyHeight} /> : <UiEntity uiTransform={{ width: '100%', height: bodyHeight, flexShrink: 0, flexDirection: short ? 'row' : 'column', alignItems: 'center', justifyContent: 'space-between' }}>
           <UiEntity uiTransform={{ width: short ? '44%' : '100%', height: short ? bodyHeight : bodyHeight - 156, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }} onMouseDown={replayTutorial}>
               <Label value="↻ TUTORIAL" fontSize={18} color={Color4.create(0.66, 0.78, 1, 1)} uiTransform={{ width: '100%', height: '100%' }} textAlign="middle-center" />
             </UiEntity>
-            <DailyGoalsMenuCard compact={short} width={short ? contentWidth * 0.44 : contentWidth} height={Math.min(158, short ? bodyHeight - 44 : bodyHeight - 200)} />
+            <DailyGoalsMenuCard
+              compact={short && !isMobile()}
+              width={short ? contentWidth * 0.44 : contentWidth}
+              height={isMobile()
+                ? Math.min(190, Math.max(0, short ? bodyHeight - 44 : bodyHeight - 200))
+                : Math.min(158, short ? bodyHeight - 44 : bodyHeight - 200)}
+            />
           </UiEntity>
           {buttons}
         </UiEntity>}
@@ -2412,13 +2566,18 @@ function LeaderboardMenuScreen(): ReactEcs.JSX.Element {
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(1, 0.8, 0.22, 0.82) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
+        {leaderboardTab === 'global' && logoHeight > 0 ? <FloatingGlobalLeaderboardTitle panelWidth={width} contentWidth={contentWidth} /> : null}
         <BackButton onClick={returnToLobby} />
         <CloseButton onClick={watchLiveMode} />
         <UiEntity uiTransform={{ width: '100%', height: 56, flexShrink: 0 }} />
-        {logoHeight > 0 ? <BeatScoreLogo compact maxHeight={logoHeight - 2} /> : null}
+        {logoHeight > 0
+          ? leaderboardTab === 'global'
+            ? <UiEntity uiTransform={{ width: '100%', height: logoHeight - 2, flexShrink: 0, pointerFilter: 'none' }} />
+            : <LeaderboardTitleImage title={leaderboardTab} width={contentWidth} height={logoHeight - 2} />
+          : null}
         <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { bottom: 8 } }}>
           <LeaderboardTabButton id="global" label="GLOBAL" />
-          <LeaderboardTabButton id="last" label="LAST DANCE" />
+          <LeaderboardTabButton id="last" label="LAST GAME" />
         </UiEntity>
         {headerHeight > 0 ? <UiEntity uiTransform={{ width: '100%', height: headerHeight, flexShrink: 0, flexDirection: 'row', padding: { left: 12, right: 12 } }}>
           {['PLAYER', 'RANK', leaderboardTab === 'global' ? 'RP' : 'SCORE', 'MAX SCORE', 'MAX PERFECT'].map((label, index) => <Label key={label} value={label} fontSize={index < 3 ? 16.8 : 15.6} color={Color4.create(0.74, 0.84, 1, 1)} uiTransform={{ width: (['31%', '23%', '16%', '15%', '15%'][index] as PercentUnit), height: '100%' }} textAlign={index === 0 ? 'middle-left' : 'middle-center'} />)}
@@ -2444,8 +2603,11 @@ function IdleScreen(): ReactEcs.JSX.Element {
   const mobile = isMobile()
   const safe = getSafeCanvas()
   const width = Math.min(520, safe.width)
-  const height = Math.min(430, safe.height)
-  const short = height < 330
+  const short = safe.height < 420
+  const logoHeight = short ? Math.min(100, width * 0.24) : Math.min(180, width * 0.36)
+  const logoOutset = logoHeight * 0.60
+  const logoInsetHeight = logoHeight * 0.42
+  const height = Math.min(short ? 310 : 340, Math.max(250, safe.height - logoOutset - 8))
   const buttonWidth = Math.min(360, width - 32)
 
   return (
@@ -2464,13 +2626,14 @@ function IdleScreen(): ReactEcs.JSX.Element {
       <UiEntity
         uiTransform={{
           positionType: 'relative',
+          position: { top: logoOutset * 0.5 },
           width,
           maxWidth: width,
           height,
           maxHeight: height,
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           padding: { top: 8, bottom: 8, left: 12, right: 12 },
           borderRadius: mobile ? 20 : 24,
           borderWidth: 2,
@@ -2478,9 +2641,10 @@ function IdleScreen(): ReactEcs.JSX.Element {
         }}
         uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}
       >
+        <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={0.60} />
         <BackButton onClick={returnToLobby} />
         <CloseButton onClick={watchLiveMode} />
-        <BeatScoreLogo compact maxHeight={short ? 24 : 90} />
+        <UiEntity uiTransform={{ width: '100%', height: logoInsetHeight, flexShrink: 0, pointerFilter: 'none' }} />
         <MenuRankText width={width - 28} height={short ? 28 : 40} />
         <Label value="CHOOSE YOUR MODE" fontSize={Math.min(24, (width - 28) / 12)}
           color={Color4.create(1.0, 0.84, 0.24, 1)}
@@ -2497,7 +2661,14 @@ function IdleScreen(): ReactEcs.JSX.Element {
 function ReadyScreen(): ReactEcs.JSX.Element {
   const safe = getSafeCanvas()
   const width = Math.min(900, safe.width)
-  const height = Math.min(680, safe.height)
+  // Keep the floating title 40% larger at every breakpoint while still
+  // deriving its size from the available device dimensions.
+  const titleHeight = Math.min(
+    (safe.height < 420 ? 68 : 104) * 1.4,
+    width * 0.23,
+    safe.height * 0.30,
+  )
+  const height = Math.min(680, Math.max(280, safe.height - titleHeight * 0.5))
   const short = height < 420
   const padding = short ? 8 : 12
   const innerWidth = width - padding * 2 - 4
@@ -2517,10 +2688,11 @@ function ReadyScreen(): ReactEcs.JSX.Element {
     {!short ? <Label value={matchLocked ? 'Join window opens after this battle' : localIsJoined ? 'You’re in • stay nearby' : 'Tap JOIN MATCH to claim your spot'} fontSize={14} color={Color4.create(0.8, 0.8, 0.9, 1)} uiTransform={{ width: '100%', height: 28, flexShrink: 0 }} textAlign="middle-center" /> : null}
   </UiEntity>
   return <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, alignItems: 'center', justifyContent: 'center' }}>
-    <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(0.38, 0.9, 0.74, 0.82) }} uiBackground={{ color: Color4.create(0.01, 0.02, 0.045, 0.94) }}>
+    <UiEntity uiTransform={{ positionType: 'relative', position: { top: titleHeight * 0.25 }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(0.38, 0.9, 0.74, 0.82) }} uiBackground={{ color: Color4.create(0.01, 0.02, 0.045, 0.94) }}>
+      <FloatingMenuTitle src={PUBLIC_MATCH_TITLE} panelWidth={width} height={titleHeight} />
       <BackButton onClick={cancelMultiplayerReady} />
       <CloseButton onClick={watchLiveMode} />
-      <Label value={matchLocked ? 'MATCH IN PROGRESS' : 'PUBLIC MATCH'} fontSize={Math.min(short ? 20 : 28, Math.max(12, (innerWidth - 110) / 8))} color={Color4.create(0.4, 1, 0.85, 1)} uiTransform={{ width: '100%', height: 44, flexShrink: 0 }} textAlign="middle-center" />
+      <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, pointerFilter: 'none' }} />
       <UiEntity uiTransform={{ width: '100%', height: bodyHeight, flexShrink: 0, flexDirection: short ? 'row' : 'column', alignItems: 'center' }}>
         {info}
         {!matchLocked ? <ReadyPlayersPanel width={short ? innerWidth * 0.58 : innerWidth} height={panelHeight} /> : null}
@@ -2534,18 +2706,27 @@ function ReadyScreen(): ReactEcs.JSX.Element {
 
 function SidePlayMenu(): ReactEcs.JSX.Element {
   const safe = getSafeCanvas()
+  const mobile = isMobile()
   const width = Math.min(isMobile() ? 282 : 250, safe.width)
-  const height = Math.min(430, safe.height)
-  const short = height < 330
-  const logoHeight = short ? 24 : Math.min(102, height * 0.20)
-  const rankHeight = short ? 44 : 96
-  const goalsHeight = Math.min(144, height - logoHeight - 2 - rankHeight - 44 - 24)
+  const short = safe.height < 380
+  const logoHeight = short ? Math.min(82, width * 0.34) : Math.min(isMobile() ? 142 : 128, width * 0.52)
+  const logoOutset = logoHeight * 0.62
+  const logoInsetHeight = logoHeight * 0.40
+  const height = Math.min(short ? 330 : mobile ? 430 : 375, Math.max(250, safe.height - logoOutset - 8))
+  const badgeSize = short ? 52 : mobile ? 92 : 112
+  const rpHeight = short ? 20 : 26
+  const goalsHeight = Math.min(mobile ? 174 : 136, height - logoInsetHeight - badgeSize - rpHeight - 44 - 30)
+  const availableTopSpace = Math.max(0, safe.height - height - logoOutset)
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: safe.top + Math.min(safe.height - height, safe.height * 0.10), right: safe.right }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding: { top: 6, right: 10, bottom: 8, left: 10 }, borderRadius: 16, borderWidth: 1, borderColor: Color4.create(0.48, 0.56, 0.92, 0.72) }} uiBackground={{ color: Color4.create(0.01, 0.01, 0.05, 0.78) }}>
-      <BeatScoreLogo compact maxHeight={logoHeight} />
-      <MenuRankStrip width={width - 22} height={rankHeight} />
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: safe.top + logoOutset + Math.min(availableTopSpace, safe.height * 0.08), right: safe.right }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding: { top: 6, right: 10, bottom: 8, left: 10 }, borderRadius: 16, borderWidth: 1, borderColor: Color4.create(0.48, 0.56, 0.92, 0.72) }} uiBackground={{ color: Color4.create(0.01, 0.01, 0.05, 0.78) }}>
+      <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={0.62} />
+      <UiEntity uiTransform={{ width: '100%', height: logoInsetHeight, flexShrink: 0, pointerFilter: 'none' }} />
       <DailyGoalsMenuCard compact width={width - 22} height={goalsHeight} />
-      <UiEntity uiTransform={{ width: '100%', height: 8, flexShrink: 0 }} />
+      <UiEntity uiTransform={{ width: '100%', height: short ? 4 : 6, flexShrink: 0 }} />
+      <RankBadgeImage points={gameState.rankPoints} size={badgeSize} />
+      <Label value={`${gameState.rankPoints} RP`} fontSize={short ? 16 : 20} color={Color4.White()}
+        uiTransform={{ width: '100%', height: rpHeight, flexShrink: 0, pointerFilter: 'none' }} textAlign="middle-center" />
+      <UiEntity uiTransform={{ width: '100%', height: short ? 4 : 6, flexShrink: 0 }} />
       <MenuButton label="MENU" tone="gold" onClick={returnToLobby} width="100%" height={44} fontSize={22} />
     </UiEntity>
   )
@@ -2553,6 +2734,8 @@ function SidePlayMenu(): ReactEcs.JSX.Element {
 
 function JumpOffButton(): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const titleWidth = mobile ? 131 : 145
+  const titleHeight = mobile ? 30 : 33
   return (
     <UiEntity
       uiTransform={{
@@ -2567,14 +2750,13 @@ function JumpOffButton(): ReactEcs.JSX.Element {
         borderColor: Color4.create(REVERSE_COLOR.r, REVERSE_COLOR.g, REVERSE_COLOR.b, 0.92),
       }}
       uiBackground={{ color: Color4.create(0.18, 0.02, 0.06, 0.90) }}
-      onMouseDown={() => runButtonAction(returnToLobby)}
+      onMouseDown={() => runButtonAction(requestJumpOff)}
     >
-      <Label
-        value="JUMP OFF"
-        fontSize={mobile ? 21 : 21}
-        color={Color4.create(1.0, 0.76, 0.84, 1)}
-        uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}
-        textAlign="middle-center"
+      <CroppedMenuTitleImage
+        src={JUMP_OFF_TITLE}
+        width={titleWidth}
+        height={titleHeight}
+        bounds={JUMP_OFF_TITLE_BOUNDS}
       />
     </UiEntity>
   )
@@ -2781,13 +2963,7 @@ function SoloTransitionScreen(): ReactEcs.JSX.Element {
         }}
         uiBackground={{ color: Color4.create(0.02, 0.025, 0.12, 0.92) }}
       >
-        <Label
-          value="SOLO STAGE"
-          fontSize={mobile ? 38 : 44}
-          color={Color4.create(1.0, 0.24, 0.76, 1)}
-          uiTransform={{ width: '100%', height: 58 }}
-          textAlign="middle-center"
-        />
+        <MenuTitleImage src={SOLO_STAGE_TITLE} width={mobile ? 420 : 480} height={mobile ? 94 : 106} />
         <Label
           value="PREPARING YOUR PRIVATE DANCE FLOOR"
           fontSize={mobile ? 17 : 19}

@@ -6,7 +6,7 @@ import bpy
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(ROOT, "exports", "beatscore-build")
-LOGO_PATH = os.path.join(ROOT, "assets", "images", "beatscore.png")
+LOGO_PATH = os.path.join(ROOT, "assets", "images", "beatscore-v3.png")
 
 
 def rgba(rgb, alpha=1.0):
