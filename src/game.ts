@@ -3354,10 +3354,17 @@ function handleSpace(fromMobile = false): void {
       gameState.measureProgress - (fromMobile ? MOBILE_HIT_LATENCY_COMPENSATION_SECONDS / gameState.roundDuration : 0),
     ),
   )
-  // HIT is only consumed once while the beat marker is inside the judgment zone.
+  // HIT is consumed once per measure. Tapping outside the judgment bar is a miss
+  // instead of being ignored, so the player gets immediate timing feedback.
   const spaceWindow = getSpaceWindow()
   const mobileGraceProgress = fromMobile ? MOBILE_TOUCH_GRACE_SECONDS / gameState.roundDuration : 0
-  if (judgedProgress < spaceWindow.start - mobileGraceProgress || judgedProgress > spaceWindow.end + mobileGraceProgress) return
+  if (judgedProgress < spaceWindow.start - mobileGraceProgress || judgedProgress > spaceWindow.end + mobileGraceProgress) {
+    gameState.spacePressed = true
+    gameState.hitMarkerProgress = judgedProgress
+    gameState.spaceFlash = 1.0
+    missSequence()
+    return
+  }
 
   gameState.spacePressed = true
   gameState.hitMarkerProgress = judgedProgress

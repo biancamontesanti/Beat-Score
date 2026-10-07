@@ -107,16 +107,16 @@
               "y": 17.5,
               "z": 33.75
             },
+            "scale": {
+              "x": 1.899999976158142,
+              "y": 1.899999976158142,
+              "z": 1.899999976158142
+            },
             "rotation": {
               "x": 0,
               "y": 0.7210350036621094,
               "z": 0,
               "w": 0.6928986310958862
-            },
-            "scale": {
-              "x": 1.899999976158142,
-              "y": 1.899999976158142,
-              "z": 1.899999976158142
             },
             "parent": 0
           }
@@ -714,17 +714,14 @@
         "0": {
           "json": {
             "name": " Beat Score - Dance Game",
-            "description": "A Decentraland dance sequence game.",
-            "thumbnail": "assets/images/beatscorephoto.jpg",
+            "description": "Beat Score is a high-energy rhythm battle where precision, timing and nerve decide who owns the dance floor. Master directional sequences, hit the beat at exactly the right moment and build huge combos as you chase personal bests, climb the Dance Ranks and compete live against other players for the spotlight. Play solo to sharpen your skills, or step onto the public stage and prove you can keep the choreography under pressure.",
+            "thumbnail": "assets/images/beatscorenew.png",
             "ageRating": "A",
             "categories": [],
             "author": "BIBI",
+            "email": "",
             "tags": [],
             "layout": {
-              "base": {
-                "x": 0,
-                "y": 0
-              },
               "parcels": [
                 {
                   "x": 0,
@@ -790,8 +787,14 @@
                   "x": 3,
                   "y": 0
                 }
-              ]
+              ],
+              "base": {
+                "x": 0,
+                "y": 0
+              }
             },
+            "silenceVoiceChat": false,
+            "disablePortableExperiences": false,
             "spawnPoints": [
               {
                 "name": "audience-left-lower",
@@ -800,8 +803,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      21.5,
-                      21.5
+                      14,
+                      29
                     ]
                   },
                   "y": {
@@ -832,8 +835,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      20.5,
-                      20.5
+                      13.5,
+                      27.5
                     ]
                   },
                   "y": {
@@ -864,8 +867,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      18.75,
-                      18.75
+                      13.5,
+                      24
                     ]
                   },
                   "y": {
@@ -896,8 +899,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      43.5,
-                      43.5
+                      36,
+                      51
                     ]
                   },
                   "y": {
@@ -928,8 +931,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      44.5,
-                      44.5
+                      37.5,
+                      51.5
                     ]
                   },
                   "y": {
@@ -960,8 +963,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      46.34000015258789,
-                      46.34000015258789
+                      41.09000015258789,
+                      51.59000015258789
                     ]
                   },
                   "y": {
@@ -992,8 +995,8 @@
                   "x": {
                     "$case": "range",
                     "value": [
-                      25,
-                      40
+                      27.5,
+                      42.5
                     ]
                   },
                   "y": {
@@ -1006,8 +1009,8 @@
                   "z": {
                     "$case": "range",
                     "value": [
-                      43.5,
-                      43.5
+                      36,
+                      51
                     ]
                   }
                 },
@@ -1038,8 +1041,8 @@
                   "z": {
                     "$case": "range",
                     "value": [
-                      45,
-                      45
+                      38.25,
+                      51.75
                     ]
                   }
                 },
@@ -1050,7 +1053,12 @@
                 }
               }
             ],
-            "skyboxConfig": {}
+            "skyboxConfig": {
+              "transitionMode": 0
+            },
+            "creator": "",
+            "disableNearbyVoiceChat": false,
+            "hideLandscapeTerrain": false
           }
         }
       }

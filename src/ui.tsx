@@ -2952,7 +2952,7 @@ function SoloTransitionScreen(): ReactEcs.JSX.Element {
       <UiEntity
         uiTransform={{
           width: mobile ? 500 : 560,
-          height: mobile ? 300 : 320,
+          height: mobile ? 220 : 240,
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
@@ -2972,34 +2972,12 @@ function SoloTransitionScreen(): ReactEcs.JSX.Element {
           textAlign="middle-center"
         />
         <UiEntity
-          uiTransform={{ width: mobile ? 320 : 360, height: 8, margin: { top: 14, bottom: 18 }, borderRadius: 8, pointerFilter: 'none' }}
+          uiTransform={{ width: mobile ? 320 : 360, height: 8, margin: { top: 14 }, borderRadius: 8, pointerFilter: 'none' }}
           uiBackground={{ color: Color4.create(0.10, 0.12, 0.28, 1) }}
         >
           <UiEntity
             uiTransform={{ width: '100%', height: '100%', borderRadius: 8, pointerFilter: 'none' }}
             uiBackground={{ color: Color4.create(0.16, 0.88, 1.0, 1) }}
-          />
-        </UiEntity>
-        <UiEntity
-          uiTransform={{
-            width: mobile ? 440 : 490,
-            height: mobile ? 72 : 76,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: Color4.create(1.0, 0.22, 0.30, 0.92),
-            padding: { left: 12, right: 12, top: 6, bottom: 6 },
-            pointerFilter: 'none',
-          }}
-          uiBackground={{ color: Color4.create(0.30, 0.015, 0.055, 0.88) }}
-        >
-          <Label
-            value={'⚠ IF ANOTHER PLAYER IS STILL OVERLAPPING:\nTAP JUMP OFF, THEN ENTER SOLO MODE AGAIN.'}
-            fontSize={mobile ? 14 : 16}
-            color={Color4.create(1.0, 0.78, 0.80, 1)}
-            uiTransform={{ width: '100%', height: '100%' }}
-            textAlign="middle-center"
           />
         </UiEntity>
       </UiEntity>

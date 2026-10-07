@@ -1,9 +1,9 @@
 {
   "display": {
     "title": " Beat Score - Dance Game",
-    "description": "A Decentraland dance sequence game.",
+    "description": "Beat Score is a high-energy rhythm battle where precision, timing and nerve decide who owns the dance floor. Master directional sequences, hit the beat at exactly the right moment and build huge combos as you chase personal bests, climb the Dance Ranks and compete live against other players for the spotlight. Play solo to sharpen your skills, or step onto the public stage and prove you can keep the choreography under pressure.",
     "favicon": "favicon_asset",
-    "navmapThumbnail": "assets/images/beatscorephoto.jpg"
+    "navmapThumbnail": "assets/images/beatscorenew.png"
   },
   "contact": {
     "name": "BIBI",
@@ -39,8 +39,8 @@
       "default": true,
       "position": {
         "x": [
-          21.5,
-          21.5
+          14,
+          29
         ],
         "y": [
           1.0700000524520874,
@@ -62,8 +62,8 @@
       "default": true,
       "position": {
         "x": [
-          20.5,
-          20.5
+          13.5,
+          27.5
         ],
         "y": [
           1.7699999809265137,
@@ -85,8 +85,8 @@
       "default": true,
       "position": {
         "x": [
-          18.75,
-          18.75
+          13.5,
+          24
         ],
         "y": [
           2.569999933242798,
@@ -108,8 +108,8 @@
       "default": true,
       "position": {
         "x": [
-          43.5,
-          43.5
+          36,
+          51
         ],
         "y": [
           1.0700000524520874,
@@ -131,8 +131,8 @@
       "default": true,
       "position": {
         "x": [
-          44.5,
-          44.5
+          37.5,
+          51.5
         ],
         "y": [
           1.7699999809265137,
@@ -154,8 +154,8 @@
       "default": true,
       "position": {
         "x": [
-          46.34000015258789,
-          46.34000015258789
+          41.09000015258789,
+          51.59000015258789
         ],
         "y": [
           2.569999933242798,
@@ -177,16 +177,16 @@
       "default": true,
       "position": {
         "x": [
-          25,
-          40
+          27.5,
+          42.5
         ],
         "y": [
           1.0700000524520874,
           1.0700000524520874
         ],
         "z": [
-          43.5,
-          43.5
+          36,
+          51
         ]
       },
       "cameraTarget": {
@@ -208,8 +208,8 @@
           1.7699999809265137
         ],
         "z": [
-          45,
-          45
+          38.25,
+          51.75
         ]
       },
       "cameraTarget": {
@@ -226,7 +226,9 @@
     "portableExperiences": "enabled",
     "nearbyVoiceChat": "enabled"
   },
-  "skyboxConfig": {},
+  "skyboxConfig": {
+    "transitionMode": 0
+  },
   "source": {
     "origin": "creator-hub",
     "projectId": "8ca025c1-f928-43a1-b331-8b8bc7521a6d"
