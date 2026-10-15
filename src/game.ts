@@ -19,6 +19,7 @@ import { Quaternion, Vector3 } from '@dcl/sdk/math'
 import { isServer, registerMessages } from '@dcl/sdk/network'
 import { isMobile } from '@dcl/sdk/platform'
 import { getPlayer, onEnterScene, onLeaveScene } from '@dcl/sdk/players'
+import { Storage } from '@dcl/sdk/server'
 import { movePlayerTo, stopEmote, triggerEmote } from '~system/RestrictedActions'
 import {
   Direction,
@@ -160,6 +161,8 @@ declare const localStorage: { getItem(key: string): string | null; setItem(key: 
 
 const SAVE_KEY_PREFIX = 'dropbeat-progress-v3'
 const GLOBAL_LEADERBOARD_SAVE_KEY = 'beat-score-global-leaderboard'
+const PERSISTENT_GLOBAL_LEADERBOARD_KEY = 'beat-score-global-leaderboard-v1'
+const PERSISTENT_PLAYER_PROGRESS_KEY = 'beat-score-player-progress-v1'
 const GLOBAL_LEADERBOARD_LIMIT = 20
 const DAILY_GOALS_VERSION = 2
 let dailyGoalsSeed = getDailySeed()
@@ -312,6 +315,8 @@ let sceneEmoteAllowanceUntil = 0
 let lastLocalEmoteTimestamp = -1
 let touchControlsHidden = false
 let jumpOffRequested = false
+let pendingUiAction: (() => void) | null = null
+let pendingUiActionDelay = 0
 let matchRestrictionRefreshTimer = 0
 let cinematicReady = false
 let cinematicCameraActive = false
@@ -321,6 +326,8 @@ let hitSoundEntity = engine.RootEntity
 let arrowClapSoundEntity = engine.RootEntity
 let arrowFailSoundEntity = engine.RootEntity
 let matchMusicEntity = engine.RootEntity
+let victorySoundEntity = engine.RootEntity
+let victorySoundPlayed = false
 let cinematicTargetEntity = engine.RootEntity
 let cinematicCameraEntity = engine.RootEntity
 const SCENE_X_OFFSET = 16
@@ -364,6 +371,7 @@ const DANCE_FLOOR_MIN_X = sceneX(7.4)
 const DANCE_FLOOR_MAX_X = sceneX(24.6)
 const DANCE_FLOOR_MIN_Z = sceneZ(7.4)
 const DANCE_FLOOR_MAX_Z = sceneZ(24.6)
+const AUDIENCE_DANCE_FLOOR_TARGET = Vector3.create(sceneX(16), 1.5, sceneZ(16))
 // Every client derives the same public match from UTC time. This prevents a late
 // player (or another island) from creating a second lobby with a different timer.
 const MULTIPLAYER_READY_WINDOW = 90.0
@@ -414,6 +422,15 @@ const multiplayerRoom = registerMessages({
     rankUpAgeMs: Schemas.Int,
   }),
   rankRosterRequest: Schemas.Map({ requesterId: Schemas.String }),
+  persistentStateRequest: Schemas.Map({ playerId: Schemas.String }),
+  persistentState: Schemas.Map({
+    playerId: Schemas.String,
+    rankPoints: Schemas.Int,
+    wins: Schemas.Int,
+    matchesPlayed: Schemas.Int,
+    leaderboardJson: Schemas.String,
+  }),
+  persistentPlayerUpdate: NetworkMatchPlayerSchema,
   playerUpdate: NetworkMatchPlayerSchema,
   playerLeave: Schemas.Map({
     playerId: Schemas.String,
@@ -443,6 +460,22 @@ const multiplayerRoom = registerMessages({
 })
 
 const serverPlayers = new Map<string, ScorePayload>()
+interface PersistentPlayerProgress {
+  playerId: string
+  name: string
+  score: number
+  maxCombo: number
+  rankPoints: number
+  wins: number
+  matchesPlayed: number
+  updatedAt: number
+}
+
+let serverPersistentLeaderboard: MatchPlayer[] = []
+let serverPersistentLeaderboardLoad: Promise<void> | null = null
+const serverPersistentProfiles = new Map<string, PersistentPlayerProgress>()
+const serverPersistentProfileLoads = new Map<string, Promise<PersistentPlayerProgress>>()
+const serverPersistentUpdateQueues = new Map<string, Promise<void>>()
 const serverSoloPlayers = new Map<string, number>()
 const serverSoloPlayerIdByPeer = new Map<string, string>()
 let networkHandlersInitialized = false
@@ -482,15 +515,21 @@ export const localRankUp = { id: 0, points: 0, timer: 0 }
 export const rankUpPopup = { id: 0, points: 0, timer: 0, gap: 0 }
 export const resultsPresentation = { elapsed: 0, remaining: 0 }
 const rankUpPopupQueue: { id: number; points: number }[] = []
-const RANK_UP_SOUND_URL = 'public/sounds/rankup.mp3'
+const RANK_UP_SOUND_URL = 'public/sounds/rank-up.mp3'
 let rankUpSoundEntity = engine.RootEntity
 
 function initRankUpSound(): void {
   if (isServer() || rankUpSoundEntity !== engine.RootEntity) return
   rankUpSoundEntity = engine.addEntity()
   AudioSource.create(rankUpSoundEntity, {
-    audioClipUrl: RANK_UP_SOUND_URL, playing: false, volume: 0.9, loop: false, global: true,
+    audioClipUrl: RANK_UP_SOUND_URL, playing: false, volume: 1.0, loop: false, global: true,
   })
+}
+
+function playRankUpSound(): void {
+  if (isServer()) return
+  initRankUpSound()
+  if (rankUpSoundEntity !== engine.RootEntity) AudioSource.playSound(rankUpSoundEntity, RANK_UP_SOUND_URL, true)
 }
 
 export function isRankPopupBlockingResults(): boolean {
@@ -513,8 +552,6 @@ function tickRankPopup(dt: number): void {
   const next = rankUpPopupQueue.shift()
   if (next) {
     Object.assign(rankUpPopup, next, { timer: RANK_UP_DURATION })
-    initRankUpSound()
-    if (!isServer() && rankUpSoundEntity !== engine.RootEntity) AudioSource.playSound(rankUpSoundEntity, RANK_UP_SOUND_URL, true)
   }
 }
 
@@ -1286,6 +1323,7 @@ const HIT_SOUND_URL = 'public/sounds/clap.mp3'
 const ARROW_CLAP_SOUND_URL = 'public/sounds/clap-arrow.mp3'
 const ARROW_FAIL_SOUND_URL = 'public/sounds/fail-arrow.mp3'
 const MATCH_MUSIC_URL = 'public/sounds/beatdropmusic.mp3'
+const VICTORY_SOUND_URL = 'public/sounds/gaming-victory.mp3'
 const POST_GAME_RESULT_DURATION = WINNER_CELEBRATION_DURATION
 
 function playPredefinedEmote(predefinedEmote: string): void {
@@ -1505,6 +1543,14 @@ function stopMatchMusic(): void {
   })
 }
 
+function playVictorySound(): void {
+  if (victorySoundPlayed || isServer()) return
+  if (!cinematicReady) initCinematicCamera()
+  if (victorySoundEntity === engine.RootEntity) return
+  victorySoundPlayed = true
+  AudioSource.playSound(victorySoundEntity, VICTORY_SOUND_URL, true)
+}
+
 function getLocalPlayerIdentity(): { playerId: string; name: string } {
   const player = getPlayer()
   if (player?.userId) cachedLocalPlayerId = player.userId
@@ -1583,6 +1629,217 @@ function normalizeLeaderboardEntry(value: unknown): MatchPlayer | null {
     isLocal: false,
     lastSeen: Math.max(0, Math.floor(Number(raw.lastSeen) || Date.now())),
   }
+}
+
+function storedLeaderboardEntry(entry: MatchPlayer): Record<string, string | number | boolean> {
+  return {
+    playerId: entry.playerId,
+    name: entry.name,
+    score: entry.score,
+    maxCombo: entry.maxCombo,
+    rankPoints: entry.rankPoints,
+    wins: entry.wins,
+    matchesPlayed: entry.matchesPlayed,
+    slotIndex: entry.slotIndex,
+    finished: true,
+    lastSeen: entry.lastSeen,
+  }
+}
+
+function sortPersistentLeaderboard(): void {
+  serverPersistentLeaderboard.sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins
+    if (b.score !== a.score) return b.score - a.score
+    if (b.rankPoints !== a.rankPoints) return b.rankPoints - a.rankPoints
+    return b.maxCombo - a.maxCombo
+  })
+  serverPersistentLeaderboard = serverPersistentLeaderboard.slice(0, GLOBAL_LEADERBOARD_LIMIT)
+}
+
+async function loadServerPersistentLeaderboard(): Promise<void> {
+  if (!isServer()) return
+  if (serverPersistentLeaderboardLoad) return serverPersistentLeaderboardLoad
+
+  serverPersistentLeaderboardLoad = (async () => {
+    const stored = await Storage.get<unknown[]>(PERSISTENT_GLOBAL_LEADERBOARD_KEY, { fresh: true })
+    serverPersistentLeaderboard = Array.isArray(stored)
+      ? stored.map(normalizeLeaderboardEntry).filter((entry): entry is MatchPlayer => entry !== null)
+      : []
+    sortPersistentLeaderboard()
+  })()
+  return serverPersistentLeaderboardLoad
+}
+
+function normalizePersistentProfile(value: unknown, playerId: string): PersistentPlayerProgress {
+  const raw = value as Partial<PersistentPlayerProgress> | null
+  return {
+    playerId,
+    name: typeof raw?.name === 'string' && raw.name.length > 0 ? raw.name.slice(0, 40) : 'Dancer',
+    score: Math.max(0, Math.floor(Number(raw?.score) || 0)),
+    maxCombo: Math.max(0, Math.floor(Number(raw?.maxCombo) || 0)),
+    rankPoints: Math.max(0, Math.floor(Number(raw?.rankPoints) || 0)),
+    wins: Math.max(0, Math.floor(Number(raw?.wins) || 0)),
+    matchesPlayed: Math.max(0, Math.floor(Number(raw?.matchesPlayed) || 0)),
+    updatedAt: Math.max(0, Math.floor(Number(raw?.updatedAt) || 0)),
+  }
+}
+
+function isWalletPlayerId(playerId: string): boolean {
+  return /^0x[0-9a-f]{40}$/i.test(playerId)
+}
+
+function guestProgressKey(playerId: string): string {
+  return `${PERSISTENT_PLAYER_PROGRESS_KEY}:guest:${playerId.toLowerCase()}`
+}
+
+async function readServerPersistentProfile(playerId: string): Promise<unknown> {
+  return isWalletPlayerId(playerId)
+    ? Storage.player.get(playerId, PERSISTENT_PLAYER_PROGRESS_KEY, { fresh: true })
+    : Storage.get(guestProgressKey(playerId), { fresh: true })
+}
+
+async function writeServerPersistentProfile(profile: PersistentPlayerProgress): Promise<boolean> {
+  return isWalletPlayerId(profile.playerId)
+    ? Storage.player.set(profile.playerId, PERSISTENT_PLAYER_PROGRESS_KEY, profile)
+    : Storage.set(guestProgressKey(profile.playerId), profile)
+}
+
+async function loadServerPersistentProfile(playerId: string): Promise<PersistentPlayerProgress> {
+  const id = normalizePlayerId(playerId)
+  const cached = serverPersistentProfiles.get(id)
+  if (cached) return cached
+  const pending = serverPersistentProfileLoads.get(id)
+  if (pending) return pending
+
+  const load = (async () => {
+    const profile = normalizePersistentProfile(await readServerPersistentProfile(id), id)
+    serverPersistentProfiles.set(id, profile)
+    serverPersistentProfileLoads.delete(id)
+    return profile
+  })()
+  serverPersistentProfileLoads.set(id, load)
+  return load
+}
+
+function persistentLeaderboardJson(): string {
+  return JSON.stringify(serverPersistentLeaderboard.map(storedLeaderboardEntry))
+}
+
+async function sendServerPersistentState(playerId: string, targets?: string[]): Promise<void> {
+  if (!isServer()) return
+  const id = normalizePlayerId(playerId)
+  await loadServerPersistentLeaderboard()
+  const profile = id && id !== 'local-player'
+    ? await loadServerPersistentProfile(id)
+    : normalizePersistentProfile(null, '')
+  await multiplayerRoom.send('persistentState', {
+    playerId: profile.playerId,
+    rankPoints: profile.rankPoints,
+    wins: profile.wins,
+    matchesPlayed: profile.matchesPlayed,
+    leaderboardJson: persistentLeaderboardJson(),
+  }, targets ? { to: targets } : undefined)
+}
+
+function queueServerPersistentUpdate(playerId: string, update: () => Promise<void>): void {
+  const id = normalizePlayerId(playerId)
+  if (!id || id === 'local-player') return
+  const previous = serverPersistentUpdateQueues.get(id) || Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(update)
+    .catch(error => console.error(`Persistent Beat Score update failed for '${id}': ${error}`))
+    .finally(() => {
+      if (serverPersistentUpdateQueues.get(id) === next) serverPersistentUpdateQueues.delete(id)
+    })
+  serverPersistentUpdateQueues.set(id, next)
+}
+
+async function saveServerPersistentLeaderboard(): Promise<void> {
+  sortPersistentLeaderboard()
+  await Storage.set(PERSISTENT_GLOBAL_LEADERBOARD_KEY, serverPersistentLeaderboard.map(storedLeaderboardEntry))
+}
+
+function persistServerRank(playerId: string, rankPoints: number): void {
+  queueServerPersistentUpdate(playerId, async () => {
+    await loadServerPersistentLeaderboard()
+    const profile = await loadServerPersistentProfile(playerId)
+    const nextRankPoints = Math.max(profile.rankPoints, Math.max(0, Math.floor(rankPoints)))
+    if (nextRankPoints === profile.rankPoints) return
+
+    profile.rankPoints = nextRankPoints
+    profile.updatedAt = Date.now()
+    await writeServerPersistentProfile(profile)
+
+    const leaderboardEntry = serverPersistentLeaderboard.find(entry => normalizePlayerId(entry.playerId) === profile.playerId)
+    if (leaderboardEntry) {
+      leaderboardEntry.rankPoints = Math.max(leaderboardEntry.rankPoints, nextRankPoints)
+      leaderboardEntry.lastSeen = profile.updatedAt
+      await saveServerPersistentLeaderboard()
+    }
+    await sendServerPersistentState(profile.playerId)
+  })
+}
+
+function persistServerPlayer(payload: ScorePayload): void {
+  queueServerPersistentUpdate(payload.playerId, async () => {
+    await loadServerPersistentLeaderboard()
+    const profile = await loadServerPersistentProfile(payload.playerId)
+    profile.name = payload.name || profile.name
+    profile.score = Math.max(profile.score, payload.score)
+    profile.maxCombo = Math.max(profile.maxCombo, payload.maxCombo)
+    profile.rankPoints = Math.max(profile.rankPoints, payload.rankPoints)
+    profile.wins = Math.max(profile.wins, payload.wins)
+    profile.matchesPlayed = Math.max(profile.matchesPlayed, payload.matchesPlayed)
+    profile.updatedAt = Date.now()
+    await writeServerPersistentProfile(profile)
+
+    const persistentEntry = normalizeLeaderboardEntry({
+      ...profile,
+      slotIndex: payload.slotIndex,
+      finished: true,
+      lastSeen: profile.updatedAt,
+    })
+    if (!persistentEntry) return
+    const existing = serverPersistentLeaderboard.find(entry => normalizePlayerId(entry.playerId) === profile.playerId)
+    if (existing) {
+      existing.name = persistentEntry.name
+      existing.score = Math.max(existing.score, persistentEntry.score)
+      existing.maxCombo = Math.max(existing.maxCombo, persistentEntry.maxCombo)
+      existing.rankPoints = Math.max(existing.rankPoints, persistentEntry.rankPoints)
+      existing.wins = Math.max(existing.wins, persistentEntry.wins)
+      existing.matchesPlayed = Math.max(existing.matchesPlayed, persistentEntry.matchesPlayed)
+      existing.lastSeen = persistentEntry.lastSeen
+    } else {
+      serverPersistentLeaderboard.push(persistentEntry)
+    }
+    await saveServerPersistentLeaderboard()
+    await sendServerPersistentState(profile.playerId)
+  })
+}
+
+function applyPersistentState(playerId: string, rankPoints: number, wins: number, matchesPlayed: number, leaderboardJson: string): void {
+  try {
+    const parsed = JSON.parse(leaderboardJson)
+    if (Array.isArray(parsed)) {
+      gameState.globalLeaderboard = parsed
+        .map(normalizeLeaderboardEntry)
+        .filter((entry): entry is MatchPlayer => entry !== null)
+      sortGlobalLeaderboard()
+      saveGlobalLeaderboard()
+    }
+  } catch {}
+
+  const local = getLocalPlayerIdentity()
+  if (normalizePlayerId(playerId) !== normalizePlayerId(local.playerId)) return
+  gameState.rankPoints = Math.max(gameState.rankPoints, Math.max(0, Math.floor(rankPoints)))
+  refreshRank()
+  const localEntry = ensureLocalMatchPlayer()
+  localEntry.rankPoints = gameState.rankPoints
+  localEntry.wins = Math.max(localEntry.wins, Math.max(0, Math.floor(wins)))
+  localEntry.matchesPlayed = Math.max(localEntry.matchesPlayed, Math.max(0, Math.floor(matchesPlayed)))
+  saveProgress()
+  publishRankPresence()
 }
 
 function sortGlobalLeaderboard(): void {
@@ -1667,6 +1924,7 @@ function startVictoryCameraMotion(winner: MatchPlayer): void {
   gameState.matchWinnerName = winner.name
   gameState.winnerPlayerId = winner.playerId
   gameState.winnerCelebrationTimer = WINNER_CELEBRATION_DURATION
+  playVictorySound()
   hitCinematicTimer = 0
 
   const playerTransform = Transform.getOrNull(engine.PlayerEntity)
@@ -1691,6 +1949,7 @@ function startWinnerSpotlight(winner: MatchPlayer): void {
   if (winner.playerId === local.playerId) {
     winner.wins += 1
     recordLeaderboardEntry(winner)
+    publishPersistentPlayer(winner)
     saveProgress()
     if (!(isMobile() && gameState.phase === 'gameover')) playPredefinedEmote(WINNER_EMOTE)
     publishScore(true)
@@ -1900,9 +2159,33 @@ function publishScore(finished = false): void {
   })
 }
 
+function publishPersistentPlayer(entry: MatchPlayer): void {
+  if (isServer()) return
+  void multiplayerRoom.send('persistentPlayerUpdate', {
+    playerId: entry.playerId,
+    name: entry.name,
+    score: Math.floor(entry.score),
+    maxCombo: Math.floor(entry.maxCombo),
+    rankPoints: Math.floor(entry.rankPoints),
+    wins: Math.floor(entry.wins),
+    matchesPlayed: Math.floor(entry.matchesPlayed),
+    slotIndex: Math.floor(entry.slotIndex),
+    ready: false,
+    finished: true,
+    measureCount: Math.floor(gameState.measureCount),
+    phase: 'gameover',
+    sentAt: Date.now(),
+    matchStartTime: 0,
+    judgmentText: entry.judgmentText,
+    judgmentCombo: Math.floor(entry.judgmentCombo),
+    judgmentSentAt: Math.floor(entry.judgmentSentAt),
+  })
+}
+
 function initMultiplayerScoreBus(): void {
   if (networkHandlersInitialized) return
   networkHandlersInitialized = true
+  if (isServer()) void loadServerPersistentLeaderboard()
   ensureLocalMatchPlayer()
 
   multiplayerRoom.onMessage('rankPresence', (value) => {
@@ -1921,6 +2204,7 @@ function initMultiplayerScoreBus(): void {
         rankUpAgeMs: Math.max(0, Math.floor(Number(value.rankUpAgeMs) || 0)),
       }
       serverRankPresences.set(id, { ...payload, lastSeen: Date.now() })
+      persistServerRank(id, payload.rankPoints)
       void multiplayerRoom.send('rankPresence', payload)
       return
     }
@@ -1937,6 +2221,30 @@ function initMultiplayerScoreBus(): void {
         ...payload, rankUpAgeMs: payload.rankUpAgeMs + Math.max(0, now - lastSeen),
       }, context?.from ? { to: [context.from] } : undefined)
     }
+  })
+
+  multiplayerRoom.onMessage('persistentStateRequest', (value, context) => {
+    if (!isServer()) return
+    const playerId = normalizePlayerId(String(value.playerId || ''))
+    if (!playerId || playerId === 'local-player') return
+    void sendServerPersistentState(playerId, context?.from ? [context.from] : undefined)
+  })
+
+  multiplayerRoom.onMessage('persistentState', (value) => {
+    if (isServer()) return
+    applyPersistentState(
+      String(value.playerId || ''),
+      Number(value.rankPoints) || 0,
+      Number(value.wins) || 0,
+      Number(value.matchesPlayed) || 0,
+      String(value.leaderboardJson || '[]'),
+    )
+  })
+
+  multiplayerRoom.onMessage('persistentPlayerUpdate', (value) => {
+    if (!isServer()) return
+    const payload = sanitizeNetworkPlayer(value as ScorePayload)
+    if (payload) persistServerPlayer(payload)
   })
 
   multiplayerRoom.onMessage('playerUpdate', (value, context) => {
@@ -1993,6 +2301,8 @@ function initMultiplayerScoreBus(): void {
         })
       }
       serverPlayers.set(payload.playerId, payload)
+      if (payload.finished || payload.phase === 'gameover') persistServerPlayer(payload)
+      else persistServerRank(payload.playerId, payload.rankPoints)
       void multiplayerRoom.send('playerUpdate', payload)
       return
     }
@@ -2115,7 +2425,19 @@ function initMultiplayerScoreBus(): void {
       latestSoloRosterRevision = -1
       return
     }
-    void multiplayerRoom.send('soloRosterRequest', { requesterId: getLocalPlayerIdentity().playerId })
+    const local = getLocalPlayerIdentity()
+    const localEntry = ensureLocalMatchPlayer()
+    const cachedRecord = gameState.globalLeaderboard.find(entry => normalizePlayerId(entry.playerId) === normalizePlayerId(local.playerId))
+    if (cachedRecord) {
+      publishPersistentPlayer({
+        ...cachedRecord,
+        rankPoints: Math.max(cachedRecord.rankPoints, gameState.rankPoints),
+        wins: Math.max(cachedRecord.wins, localEntry.wins),
+        matchesPlayed: Math.max(cachedRecord.matchesPlayed, localEntry.matchesPlayed),
+      })
+    }
+    void multiplayerRoom.send('soloRosterRequest', { requesterId: local.playerId })
+    void multiplayerRoom.send('persistentStateRequest', { playerId: local.playerId })
     publishRankPresence()
     void multiplayerRoom.send('rankRosterRequest', { requesterId: getLocalPlayerIdentity().playerId })
     if (gameState.playMode === 'multiplayer') publishScore(false)
@@ -2269,6 +2591,7 @@ function awardRankPoints(points: number): void {
     localRankUp.points = gameState.rankPoints
     localRankUp.timer = RANK_UP_DURATION
     rankUpPopupQueue.push({ id: localRankUp.id, points: localRankUp.points })
+    playRankUpSound()
   }
   for (const rows of [gameState.globalLeaderboard, gameState.lastDanceLeaderboard]) {
     for (const entry of rows) {
@@ -2342,6 +2665,7 @@ function recordGlobalLeaderboardScore(): void {
     lastSeen: Date.now(),
   }
   recordLeaderboardEntry(scoreEntry)
+  publishPersistentPlayer(scoreEntry)
 }
 
 function missSequence(): void {
@@ -2477,7 +2801,11 @@ function placePlayerOnAudienceSpot(): void {
   const transform = Transform.getMutable(engine.PlayerEntity)
   const slotPosition = getLocalAudienceSlotPosition()
   transform.position = Vector3.create(slotPosition.x, slotPosition.y, slotPosition.z)
-  transform.rotation = Quaternion.fromEulerDegrees(0, 180, 0)
+  transform.rotation = Quaternion.lookRotation(Vector3.create(
+    AUDIENCE_DANCE_FLOOR_TARGET.x - slotPosition.x,
+    0,
+    AUDIENCE_DANCE_FLOOR_TARGET.z - slotPosition.z,
+  ), Vector3.Up())
 }
 
 function teleportPlayerToAudienceSpot(): void {
@@ -2487,6 +2815,7 @@ function teleportPlayerToAudienceSpot(): void {
 
   void movePlayerTo({
     newRelativePosition: Vector3.create(slotPosition.x, slotPosition.y, slotPosition.z),
+    avatarTarget: AUDIENCE_DANCE_FLOOR_TARGET,
   }).then(() => {
     placePlayerOnAudienceSpot()
     stopLocalDanceEmote()
@@ -2624,6 +2953,18 @@ function initCinematicCamera(): void {
     audioClipUrl: MATCH_MUSIC_URL,
     playing: false,
     volume: 0.72,
+    loop: false,
+    global: true,
+  })
+
+  victorySoundEntity = engine.addEntity()
+  Transform.create(victorySoundEntity, {
+    position: Vector3.create(sceneX(16), 2.2, sceneZ(16)),
+  })
+  AudioSource.create(victorySoundEntity, {
+    audioClipUrl: VICTORY_SOUND_URL,
+    playing: false,
+    volume: 1.0,
     loop: false,
     global: true,
   })
@@ -3037,6 +3378,7 @@ function startGame(mode: Exclude<PlayMode, 'none'>): void {
   gameState.winnerPlayerId = ''
   gameState.winnerCelebrationTimer = 0
   winnerCelebrationStarted = false
+  victorySoundPlayed = false
   gameState.multiplayerCountdown = 0
   localMatchElapsed = 0
   totalBeats             = 0
@@ -3207,6 +3549,7 @@ export function returnToLobby(): void {
   gameState.winnerPlayerId = ''
   gameState.winnerCelebrationTimer = 0
   winnerCelebrationStarted = false
+  victorySoundPlayed = false
   resetMatchSlotLocks()
   postGameReturnTimer = 0
   multiplayerMatchStartTimeMs = 0
@@ -3230,7 +3573,43 @@ export function requestJumpOff(): void {
   jumpOffRequested = true
 }
 
+// React ECS dispatches mobile UI input while it is still resolving the active
+// touch target. State changes that remove that target (or rebuild the native
+// controls) must happen after the event has completely cleared the UI tree.
+export function dispatchUiAction(action: () => void): void {
+  if (!isMobile()) {
+    try {
+      action()
+    } catch (error) {
+      console.error('Beat Score UI action failed', error)
+    }
+    return
+  }
+
+  // Ignore the duplicate pointer event some mobile clients emit for one tap.
+  if (pendingUiAction) return
+  pendingUiAction = action
+  pendingUiActionDelay = 0.08
+}
+
+function tickPendingUiAction(dt: number): boolean {
+  if (!pendingUiAction) return false
+  pendingUiActionDelay -= dt
+  if (pendingUiActionDelay > 0) return false
+
+  const action = pendingUiAction
+  pendingUiAction = null
+  pendingUiActionDelay = 0
+  try {
+    action()
+  } catch (error) {
+    console.error('Beat Score mobile UI action failed', error)
+  }
+  return true
+}
+
 export function watchLiveMode(): void {
+  const shouldReturnToAudience = gameState.phase !== 'idle' || gameState.playMode !== 'none' || pendingSoloStart
   cancelPendingSoloStart()
   stopLocalDanceEmote()
   const local = ensureLocalMatchPlayer()
@@ -3256,7 +3635,10 @@ export function watchLiveMode(): void {
   setPlayerMovementLocked(false)
   setNativeTouchControlsHidden(false)
   setCinematicCameraActive(false)
-  teleportPlayerToAudienceSpot()
+  // Closing the lobby or choosing JUST WATCH must only dismiss the panel.
+  // An unnecessary restricted teleport here was particularly unstable on
+  // mobile clients. Active players still return safely to the audience.
+  if (shouldReturnToAudience) teleportPlayerToAudienceSpot()
   stopMatchMusic()
   publishScore(false)
 }
@@ -3459,6 +3841,7 @@ export function initGame(): void {
   initCinematicCamera()
 
   engine.addSystem((dt: number) => {
+    if (tickPendingUiAction(dt)) return
     if (jumpOffRequested) {
       jumpOffRequested = false
       returnToLobby()

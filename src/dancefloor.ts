@@ -150,8 +150,16 @@ function pbr(
   emissiveIntensity: number,
   metallic = 0.85,
   roughness = 0.15,
+  solid = false,
 ): void {
-  Material.setPbrMaterial(entity, { albedoColor: albedo, emissiveColor: emissive, emissiveIntensity, metallic, roughness })
+  Material.setPbrMaterial(entity, {
+    albedoColor: solid ? Color4.create(albedo.r, albedo.g, albedo.b, 1) : albedo,
+    emissiveColor: emissive,
+    emissiveIntensity,
+    metallic,
+    roughness,
+    transparencyMode: solid ? MaterialTransparencyMode.MTM_OPAQUE : MaterialTransparencyMode.MTM_AUTO,
+  })
 }
 
 function box(entity: Entity, x: number, y: number, z: number, sx: number, sy: number, sz: number): void {
@@ -710,9 +718,9 @@ function buildPhysicalLeaderboard(): void {
   remember(board, currentDanceEntities)
   box(board, boardX, 5.28, boardZ, 10.75, 5.18, 0.16)
   pbr(board,
-    Color4.create(0.015, 0.012, 0.045, 0.98),
+    Color4.create(0.015, 0.012, 0.045, 1),
     Color3.create(0.06, 0.02, 0.16),
-    0.9, 0.2, 0.35,
+    0.9, 0.2, 0.35, true,
   )
   addLeaderboardFrame(currentDanceEntities, boardX, boardZ, Color3.create(1.0, 0.18, 0.58))
 
@@ -731,9 +739,9 @@ function buildPhysicalLeaderboard(): void {
     remember(rowBack, currentDanceEntities)
     box(rowBack, boardX, y, rowZ, 10.15, 0.62, 0.08)
     pbr(rowBack,
-      i === 0 ? Color4.create(0.18, 0.12, 0.02, 0.95) : Color4.create(0.035, 0.035, 0.09, 0.90),
+      i === 0 ? Color4.create(0.18, 0.12, 0.02, 1) : Color4.create(0.035, 0.035, 0.09, 1),
       i === 0 ? Color3.create(0.75, 0.46, 0.08) : Color3.create(0.08, 0.10, 0.20),
-      i === 0 ? 1.2 : 0.45, 0.35, 0.45,
+      i === 0 ? 1.2 : 0.45, 0.35, 0.45, true,
     )
 
     const placeBadge = engine.addEntity()
@@ -878,9 +886,9 @@ function buildGlobalRecordsLeaderboard(): void {
   remember(board, globalRecordEntities)
   box(board, boardX, 5.28, boardZ, 10.75, 5.18, 0.16)
   pbr(board,
-    Color4.create(0.015, 0.012, 0.045, 0.98),
+    Color4.create(0.015, 0.012, 0.045, 1),
     Color3.create(0.06, 0.02, 0.16),
-    0.9, 0.2, 0.35,
+    0.9, 0.2, 0.35, true,
   )
   addLeaderboardFrame(globalRecordEntities, boardX, frameZ, Color3.create(0.0, 0.83, 1.0))
 
@@ -896,9 +904,9 @@ function buildGlobalRecordsLeaderboard(): void {
     remember(rowBack, globalRecordEntities)
     box(rowBack, boardX, y, rowZ, 10.15, 0.62, 0.08)
     pbr(rowBack,
-      i === 0 ? Color4.create(0.04, 0.17, 0.20, 0.95) : Color4.create(0.035, 0.035, 0.09, 0.90),
+      i === 0 ? Color4.create(0.04, 0.17, 0.20, 1) : Color4.create(0.035, 0.035, 0.09, 1),
       i === 0 ? Color3.create(0.30, 1.0, 0.85) : Color3.create(0.08, 0.10, 0.20),
-      i === 0 ? 1.0 : 0.45, 0.35, 0.45,
+      i === 0 ? 1.0 : 0.45, 0.35, 0.45, true,
     )
 
     const rankLabel = remember(rankImageEntity(boardX - 0.72, y, textZ, 1.65, 0, false, rotationY), globalRecordEntities)

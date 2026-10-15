@@ -17,6 +17,7 @@ import {
   resultsPresentation,
   isRankPopupBlockingResults,
   closeResults,
+  dispatchUiAction,
   openLeaderboardMenu,
   openPlayMenu,
   readyForMultiplayer,
@@ -96,6 +97,7 @@ let tutorialPage = 0
 let tutorialSequenceStartedAt = Date.now()
 let leaderboardTab: 'global' | 'last' = 'global'
 let leaderboardPage = 0
+let buttonActionLockedUntil = 0
 
 function getSafeCanvas() {
   const canvas = UiCanvasInformation.getOrNull(engine.RootEntity)
@@ -434,8 +436,11 @@ function playButtonSound(): void {
 }
 
 function runButtonAction(action: () => void): void {
+  const now = Date.now()
+  if (now < buttonActionLockedUntil) return
+  buttonActionLockedUntil = now + (isMobile() ? 240 : 80)
   playButtonSound()
-  action()
+  dispatchUiAction(action)
 }
 
 function BeatScoreLogo({ compact = false, maxHeight }: { compact?: boolean; maxHeight?: number }): ReactEcs.JSX.Element {
@@ -573,12 +578,13 @@ function MenuButton({
   disabled?: boolean
 }): ReactEcs.JSX.Element {
   const gradient = BUTTON_GRADIENTS[tone]
+  const touchHeight = isMobile() ? Math.max(48, height) : height
 
   return (
     <UiEntity
       uiTransform={{
         width,
-        height,
+        height: touchHeight,
         flexShrink: 0,
         alignItems: 'center',
         justifyContent: 'center',
@@ -587,6 +593,7 @@ function MenuButton({
         borderWidth: 2,
         borderColor: disabled ? Color4.create(0.30, 0.34, 0.44, 0.85) : gradient.border,
         overflow: 'hidden',
+        pointerFilter: disabled ? 'none' : 'block',
       }}
       uiBackground={{ color: disabled ? Color4.create(0.09, 0.11, 0.16, 0.96) : gradient.bottom }}
       onMouseDown={disabled ? undefined : () => runButtonAction(onClick)}
@@ -1000,13 +1007,14 @@ function CloseButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element
       uiTransform={{
         positionType: 'absolute',
         position: { top: 12, right: 12 },
-        width: mobile ? 44 : 42,
-        height: mobile ? 44 : 42,
+        width: mobile ? 52 : 42,
+        height: mobile ? 52 : 42,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 12,
         borderWidth: 1,
         borderColor: Color4.create(1.0, 0.40, 0.86, 0.85),
+        pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.04, 0.03, 0.08, 0.92) }}
       onMouseDown={() => runButtonAction(onClick)}
@@ -1015,7 +1023,7 @@ function CloseButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element
         value="X"
         fontSize={24}
         color={Color4.create(1.0, 0.62, 0.92, 1)}
-        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
         textAlign="middle-center"
       />
     </UiEntity>
@@ -1030,12 +1038,13 @@ function BackButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element 
         positionType: 'absolute',
         position: { top: 12, left: 12 },
         width: mobile ? 94 : 96,
-        height: mobile ? 42 : 42,
+        height: mobile ? 50 : 42,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 12,
         borderWidth: 1,
         borderColor: Color4.create(0.42, 0.82, 1.0, 0.85),
+        pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.06, 0.06, 0.14, 0.92) }}
       onMouseDown={() => runButtonAction(onClick)}
@@ -1044,7 +1053,7 @@ function BackButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element 
         value="BACK"
         fontSize={18}
         color={Color4.create(0.70, 0.92, 1.0, 1)}
-        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
         textAlign="middle-center"
       />
     </UiEntity>
@@ -2174,6 +2183,7 @@ function OfficialTouchButton({
         borderRadius: Math.floor(size / 2),
         borderWidth: 3,
         borderColor: Color4.create(tone.r, tone.g, tone.b, 0.34),
+        pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.02, 0.01, 0.04, 0.90) }}
       uiInputBinding={{ actions: [action] }}
@@ -2187,6 +2197,7 @@ function OfficialTouchButton({
           borderRadius: Math.floor((size - 8) / 2),
           borderWidth: 2,
           borderColor: Color4.create(tone.r, tone.g, tone.b, 0.96),
+          pointerFilter: 'none',
         }}
         uiBackground={{ color: Color4.create(0.01, 0.01, 0.025, 0.96) }}
       >
@@ -2194,7 +2205,7 @@ function OfficialTouchButton({
           value={label}
           fontSize={size > 70 ? 44 : 34}
           color={tone}
-          uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+          uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
           textAlign="middle-center"
         />
       </UiEntity>
@@ -2204,6 +2215,15 @@ function OfficialTouchButton({
 
 function OfficialMobileControls(): ReactEcs.JSX.Element | null {
   if (!isMobile()) return null
+  const safe = getSafeCanvas()
+  const baseControlsWidth = 250 + 154 + 24
+  const controlScale = Math.max(0.62, Math.min(1, (safe.width - 16) / baseControlsWidth, (safe.height - 90) / 250))
+  const directionPadSize = 250 * controlScale
+  const directionButtonSize = 82 * controlScale
+  const directionStep = 84 * controlScale
+  const directionCenterSize = 48 * controlScale
+  const hitButtonSize = 154 * controlScale
+  const hitInnerSize = 142 * controlScale
   const wrongDirection = arrowInputFeedback.timer > 0 && !arrowInputFeedback.correct
     ? arrowInputFeedback.direction
     : null
@@ -2214,38 +2234,39 @@ function OfficialMobileControls(): ReactEcs.JSX.Element | null {
       <UiEntity
         uiTransform={{
           positionType: 'absolute',
-          position: { bottom: 82, left: 48 },
-          width: 250,
-          height: 250,
+          position: { bottom: safe.bottom + 54 * controlScale, left: safe.left },
+          width: directionPadSize,
+          height: directionPadSize,
           pointerFilter: 'none',
         }}
       >
-        <OfficialTouchButton action={InputAction.IA_ACTION_5} label="⌃" x={84} y={0} size={82} tone={DIR_COLOR.up} />
-        <OfficialTouchButton action={InputAction.IA_ACTION_3} label="‹" x={0} y={84} size={82} tone={DIR_COLOR.left} />
-        <OfficialTouchButton action={InputAction.IA_ACTION_4} label="›" x={168} y={84} size={82} tone={DIR_COLOR.right} />
-        <OfficialTouchButton action={InputAction.IA_ACTION_6} label="⌄" x={84} y={168} size={82} tone={DIR_COLOR.down} />
+        <OfficialTouchButton action={InputAction.IA_ACTION_5} label="⌃" x={directionStep} y={0} size={directionButtonSize} tone={DIR_COLOR.up} />
+        <OfficialTouchButton action={InputAction.IA_ACTION_3} label="‹" x={0} y={directionStep} size={directionButtonSize} tone={DIR_COLOR.left} />
+        <OfficialTouchButton action={InputAction.IA_ACTION_4} label="›" x={directionStep * 2} y={directionStep} size={directionButtonSize} tone={DIR_COLOR.right} />
+        <OfficialTouchButton action={InputAction.IA_ACTION_6} label="⌄" x={directionStep} y={directionStep * 2} size={directionButtonSize} tone={DIR_COLOR.down} />
         <UiEntity
           uiTransform={{
             positionType: 'absolute',
-            position: { left: 101, top: 101 },
-            width: 48,
-            height: 48,
-            borderRadius: 24,
+            position: { left: 101 * controlScale, top: 101 * controlScale },
+            width: directionCenterSize,
+            height: directionCenterSize,
+            borderRadius: directionCenterSize / 2,
+            pointerFilter: 'none',
           }}
           uiBackground={{ color: Color4.create(0.01, 0.01, 0.025, 0.78) }}
         />
-        <MobileTapEffect flash={mobileTapFeedback.up} size={82} tone={DIR_COLOR.up} gradientTone="cyan" x={84} y={0} correct={wrongDirection !== 'up'} />
-        <MobileTapEffect flash={mobileTapFeedback.left} size={82} tone={DIR_COLOR.left} gradientTone="magenta" x={0} y={84} correct={wrongDirection !== 'left'} />
-        <MobileTapEffect flash={mobileTapFeedback.right} size={82} tone={DIR_COLOR.right} gradientTone="green" x={168} y={84} correct={wrongDirection !== 'right'} />
-        <MobileTapEffect flash={mobileTapFeedback.down} size={82} tone={DIR_COLOR.down} gradientTone="magenta" x={84} y={168} correct={wrongDirection !== 'down'} />
+        <MobileTapEffect flash={mobileTapFeedback.up} size={directionButtonSize} tone={DIR_COLOR.up} gradientTone="cyan" x={directionStep} y={0} correct={wrongDirection !== 'up'} />
+        <MobileTapEffect flash={mobileTapFeedback.left} size={directionButtonSize} tone={DIR_COLOR.left} gradientTone="magenta" x={0} y={directionStep} correct={wrongDirection !== 'left'} />
+        <MobileTapEffect flash={mobileTapFeedback.right} size={directionButtonSize} tone={DIR_COLOR.right} gradientTone="green" x={directionStep * 2} y={directionStep} correct={wrongDirection !== 'right'} />
+        <MobileTapEffect flash={mobileTapFeedback.down} size={directionButtonSize} tone={DIR_COLOR.down} gradientTone="magenta" x={directionStep} y={directionStep * 2} correct={wrongDirection !== 'down'} />
       </UiEntity>
 
       <UiEntity
         uiTransform={{
           positionType: 'absolute',
-          position: { bottom: 14, right: 16 },
-          width: 154,
-          height: 154,
+          position: { bottom: safe.bottom, right: safe.right },
+          width: hitButtonSize,
+          height: hitButtonSize,
           pointerFilter: 'none',
         }}
       >
@@ -2253,11 +2274,11 @@ function OfficialMobileControls(): ReactEcs.JSX.Element | null {
           uiTransform={{
             positionType: 'absolute',
             position: { right: 0, bottom: 0 },
-            width: 154,
-            height: 154,
+            width: hitButtonSize,
+            height: hitButtonSize,
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: 77,
+            borderRadius: hitButtonSize / 2,
             borderWidth: 3,
             borderColor: Color4.create(HIT_COLOR.r, HIT_COLOR.g, HIT_COLOR.b, 0.42),
           }}
@@ -2265,19 +2286,19 @@ function OfficialMobileControls(): ReactEcs.JSX.Element | null {
           uiInputBinding={{ actions: [InputAction.IA_JUMP] }}
         >
           <UiEntity
-            uiTransform={{ width: 142, height: 142, alignItems: 'center', justifyContent: 'center', borderRadius: 71, borderWidth: 3, borderColor: HIT_COLOR }}
+            uiTransform={{ width: hitInnerSize, height: hitInnerSize, alignItems: 'center', justifyContent: 'center', borderRadius: hitInnerSize / 2, borderWidth: 3, borderColor: HIT_COLOR, pointerFilter: 'none' }}
             uiBackground={{ color: Color4.create(0.07, 0.035, 0.01, 0.96) }}
           >
             <Label
               value="★"
-              fontSize={76}
+              fontSize={76 * controlScale}
               color={HIT_COLOR}
-              uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+              uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
               textAlign="middle-center"
             />
           </UiEntity>
         </UiEntity>
-        <MobileTapEffect flash={mobileTapFeedback.hit} size={154} tone={HIT_COLOR} gradientTone="gold" />
+        <MobileTapEffect flash={mobileTapFeedback.hit} size={hitButtonSize} tone={HIT_COLOR} gradientTone="gold" />
       </UiEntity>
     </UiEntity>
   )
@@ -2372,6 +2393,7 @@ function KeyHints(): ReactEcs.JSX.Element {
 // Idle / title screen
 // ──────────────────────────────────────────────────────────
 function LobbyChoiceScreen(): ReactEcs.JSX.Element {
+  const mobile = isMobile()
   const safe = getSafeCanvas()
   const width = Math.min(560, safe.width)
   const short = safe.height < 520
@@ -2384,7 +2406,7 @@ function LobbyChoiceScreen(): ReactEcs.JSX.Element {
   const logoInsetHeight = short ? logoHeight * 0.58 : logoHeight * 0.40
   const rankHeight = tutorialPage < 5 ? 0 : short ? 28 : 40
   const bodyHeight = height - padding * 2 - 4 - logoInsetHeight - rankHeight
-  const replayTutorial = (): void => { playButtonSound(); tutorialPage = 0; tutorialSequenceStartedAt = Date.now() }
+  const replayTutorial = (): void => runButtonAction(() => { tutorialPage = 0; tutorialSequenceStartedAt = Date.now() })
   const buttons = <UiEntity uiTransform={{ width: short ? '54%' : '100%', height: short ? bodyHeight : 148, flexShrink: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
     <MenuButton label="DANCE" tone="cyan" onClick={openPlayMenu} width="100%" height={44} fontSize={24} marginBottom={short ? 3 : 6} />
     <MenuButton label="LEADERBOARDS" tone="gold" onClick={openLeaderboardMenu} width="100%" height={44} fontSize={Math.min(24, (short ? contentWidth * 0.54 : contentWidth) / 9)} marginBottom={short ? 3 : 6} />
@@ -2399,8 +2421,8 @@ function LobbyChoiceScreen(): ReactEcs.JSX.Element {
         {tutorialPage >= 5 ? <MenuRankText width={contentWidth} height={rankHeight} /> : null}
         {tutorialPage < 5 ? <TutorialSlide width={contentWidth} height={bodyHeight} /> : <UiEntity uiTransform={{ width: '100%', height: bodyHeight, flexShrink: 0, flexDirection: short ? 'row' : 'column', alignItems: 'center', justifyContent: 'space-between' }}>
           <UiEntity uiTransform={{ width: short ? '44%' : '100%', height: short ? bodyHeight : bodyHeight - 156, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }} onMouseDown={replayTutorial}>
-              <Label value="↻ TUTORIAL" fontSize={18} color={Color4.create(0.66, 0.78, 1, 1)} uiTransform={{ width: '100%', height: '100%' }} textAlign="middle-center" />
+            <UiEntity uiTransform={{ width: '100%', height: mobile ? 48 : 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }} onMouseDown={replayTutorial}>
+              <Label value="↻ TUTORIAL" fontSize={18} color={Color4.create(0.66, 0.78, 1, 1)} uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }} textAlign="middle-center" />
             </UiEntity>
             <DailyGoalsMenuCard
               compact={short && !isMobile()}
@@ -2474,7 +2496,7 @@ function LeaderboardTabButton({ id, label }: { id: 'global' | 'last'; label: str
     <UiEntity
       uiTransform={{
         width: '48%',
-        height: 44,
+        height: mobile ? 48 : 44,
         flexShrink: 0,
         alignItems: 'center',
         justifyContent: 'center',
@@ -2482,6 +2504,7 @@ function LeaderboardTabButton({ id, label }: { id: 'global' | 'last'; label: str
         borderWidth: active ? 2 : 1,
         borderColor: active ? Color4.create(1.0, 0.86, 0.28, 1) : Color4.create(0.46, 0.58, 1.0, 0.45),
         overflow: 'hidden',
+        pointerFilter: 'block',
       }}
       uiBackground={{ color: active ? Color4.create(0.35, 0.16, 0.04, 0.96) : Color4.create(0.04, 0.05, 0.12, 0.88) }}
       onMouseDown={() => runButtonAction(() => { leaderboardTab = id; leaderboardPage = 0 })}
@@ -2742,12 +2765,13 @@ function JumpOffButton(): ReactEcs.JSX.Element {
         positionType: 'absolute',
         position: { top: mobile ? 180 : 194, right: mobile ? 12 : 24 },
         width: mobile ? 152 : 170,
-        height: mobile ? 46 : 46,
+        height: mobile ? 52 : 46,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 12,
         borderWidth: 2,
         borderColor: Color4.create(REVERSE_COLOR.r, REVERSE_COLOR.g, REVERSE_COLOR.b, 0.92),
+        pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.18, 0.02, 0.06, 0.90) }}
       onMouseDown={() => runButtonAction(requestJumpOff)}
