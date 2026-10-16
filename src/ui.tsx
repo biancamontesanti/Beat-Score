@@ -21,6 +21,7 @@ import {
   openLeaderboardMenu,
   openPlayMenu,
   readyForMultiplayer,
+  requestMobileHit,
   requestJumpOff,
   returnToLobby,
   startSoloMode,
@@ -29,7 +30,7 @@ import {
   watchLiveMode,
 } from './game'
 import { Direction, TOTAL_MEASURES } from './beatmap'
-import { DANCE_RANKS, getDanceRank, RANK_UP_DURATION, rankUpMotion, smoothStep } from './ranks'
+import { DANCE_RANKS, getDanceRank, getDanceRankIndex, RANK_UP_DURATION, rankUpMotion, smoothStep } from './ranks'
 import { LEVEL_TITLES, getLevelTitleKey, type LevelTitleKey } from './levelTitles'
 
 // ──────────────────────────────────────────────────────────
@@ -75,6 +76,27 @@ const PUBLIC_MATCH_TITLE = 'assets/images/ui/levels/public-match.png'
 const SOLO_STAGE_TITLE = 'assets/images/ui/levels/solo-stage.png'
 const POINTS_TITLE = 'assets/images/ui/levels/points.png'
 const JUMP_OFF_TITLE = 'assets/images/ui/levels/jump-off.png'
+const DAILY_GOALS_TITLE = 'assets/images/ui/levels/daily-goals-bw.png'
+const DAILY_GOALS_TITLE_ASPECT = 2152 / 408
+const BUTTON_LABEL_ART: Partial<Record<string, { src: string; aspect: number }>> = {
+  DANCE: { src: 'assets/images/ui/levels/dance-blue.png', aspect: 1914 / 508 },
+  LEADERBOARD: { src: 'assets/images/ui/levels/leaderboard-gold.png', aspect: 2124 / 373 },
+  'JUST WATCH': { src: 'assets/images/ui/levels/just-watch-pink.png', aspect: 2115 / 391 },
+  SKIP: { src: 'assets/images/ui/levels/skip-pink.png', aspect: 1926 / 602 },
+  BACK: { src: 'assets/images/ui/levels/back-pink.png', aspect: 1923 / 582 },
+  NEXT: { src: 'assets/images/ui/levels/next-blue.png', aspect: 1854 / 582 },
+  'SHOW MENU': { src: 'assets/images/ui/levels/show-menu-gold.png', aspect: 2103 / 362 },
+  'PUBLIC MATCH': { src: 'assets/images/ui/levels/public-match-button.png', aspect: 2133 / 376 },
+  'SOLO STAGE': { src: 'assets/images/ui/levels/solo-stage-button.png', aspect: 2126 / 405 },
+  X: { src: 'assets/images/ui/levels/close-x-pink.png', aspect: 1111 / 868 },
+}
+const RANK_MENU_ART = [
+  { src: 'assets/images/ui/levels/menu-hit-apprentice.png', aspect: 2044 / 550 },
+  { src: 'assets/images/ui/levels/menu-move-riser.png', aspect: 2027 / 553 },
+  { src: 'assets/images/ui/levels/menu-club-star.png', aspect: 2009 / 563 },
+  { src: 'assets/images/ui/levels/menu-step-legend.png', aspect: 1879 / 562 },
+  { src: 'assets/images/ui/levels/menu-dance-royalty.png', aspect: 2111 / 599 },
+] as const
 const POINTS_TITLE_BOUNDS = [229, 155, 1968, 580] as const
 const JUMP_OFF_TITLE_BOUNDS = [187, 163, 2000, 567] as const
 const JUDGMENT_GRADIENT = 'assets/images/ui/judgment-gradient.png'
@@ -82,8 +104,8 @@ const LEADERBOARD_TITLE_TEXTURES = {
   global: 'assets/images/ui/levels/global-leaderboard.png',
   last: 'assets/images/ui/levels/last-game.png',
 } as const
-const LEADERBOARD_TITLE_ASPECT = 2172 / 724
 const GLOBAL_LEADERBOARD_TITLE_BOUNDS = [31, 231, 2144, 485] as const
+const LAST_GAME_TITLE_BOUNDS = [60, 157, 2122, 566] as const
 const JUDGMENT_TEXTURES: Record<JudgmentText, string> = {
   'PERFECT!': 'assets/images/ui/judgment-perfect.png',
   'GREAT!': 'assets/images/ui/judgment-great.png',
@@ -93,6 +115,8 @@ const JUDGMENT_TEXTURES: Record<JudgmentText, string> = {
 }
 const BUTTON_SOUND = 'public/sounds/decentraland-button.mp3'
 let buttonSoundEntity = engine.RootEntity
+let buttonHoverSoundEntity = engine.RootEntity
+let lastHoverSoundAt = 0
 let tutorialPage = 0
 let tutorialSequenceStartedAt = Date.now()
 let leaderboardTab: 'global' | 'last' = 'global'
@@ -143,19 +167,15 @@ function LevelTitlePreload(): ReactEcs.JSX.Element {
   </UiEntity>
 }
 
-function LeaderboardTitleImage({ title, width, height }: { title: 'global' | 'last'; width: number; height: number }): ReactEcs.JSX.Element {
-  const imageWidth = Math.min(width, height * LEADERBOARD_TITLE_ASPECT)
-  const imageHeight = imageWidth / LEADERBOARD_TITLE_ASPECT
-  return <UiEntity uiTransform={{ width, height, flexShrink: 0, alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}>
-    <UiEntity uiTransform={{ width: imageWidth, height: imageHeight, pointerFilter: 'none' }}
-      uiBackground={{ texture: { src: LEADERBOARD_TITLE_TEXTURES[title] }, textureMode: 'stretch' }} />
-  </UiEntity>
-}
-
-function FloatingGlobalLeaderboardTitle({ panelWidth, contentWidth }: { panelWidth: number; contentWidth: number }): ReactEcs.JSX.Element {
-  const visibleAspect = (GLOBAL_LEADERBOARD_TITLE_BOUNDS[2] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[0]) /
-    (GLOBAL_LEADERBOARD_TITLE_BOUNDS[3] - GLOBAL_LEADERBOARD_TITLE_BOUNDS[1])
-  const width = Math.min(680, contentWidth * 0.86)
+function FloatingLeaderboardTitle({ title, panelWidth, contentWidth }: { title: 'global' | 'last'; panelWidth: number; contentWidth: number }): ReactEcs.JSX.Element {
+  const bounds = title === 'global' ? GLOBAL_LEADERBOARD_TITLE_BOUNDS : LAST_GAME_TITLE_BOUNDS
+  const visibleAspect = (bounds[2] - bounds[0]) / (bounds[3] - bounds[1])
+  // LAST GAME is intentionally larger than its previous in-panel rendering
+  // and floats 30% above the frame. GLOBAL stays narrower so the left edge no
+  // longer reaches the BACK button on mobile landscape.
+  const width = title === 'last'
+    ? Math.min(540, contentWidth * 0.60)
+    : Math.min(580, contentWidth * 0.68)
   const height = width / visibleAspect
 
   return (
@@ -170,10 +190,10 @@ function FloatingGlobalLeaderboardTitle({ panelWidth, contentWidth }: { panelWid
       }}
     >
       <CroppedMenuTitleImage
-        src={LEADERBOARD_TITLE_TEXTURES.global}
+        src={LEADERBOARD_TITLE_TEXTURES[title]}
         width={width}
         height={height}
-        bounds={GLOBAL_LEADERBOARD_TITLE_BOUNDS}
+        bounds={bounds}
       />
     </UiEntity>
   )
@@ -393,7 +413,7 @@ function judgmentPopScale(progress: number): number {
   return 1
 }
 
-type ButtonTone = 'cyan' | 'magenta' | 'green' | 'gold' | 'red'
+type ButtonTone = 'cyan' | 'magenta' | 'purple' | 'green' | 'gold' | 'red'
 
 const BUTTON_GRADIENTS: Record<ButtonTone, { top: Color4; bottom: Color4; border: Color4 }> = {
   cyan: {
@@ -405,6 +425,11 @@ const BUTTON_GRADIENTS: Record<ButtonTone, { top: Color4; bottom: Color4; border
     top: Color4.create(0.94, 0.20, 0.72, 0.98),
     bottom: Color4.create(0.46, 0.05, 0.44, 0.98),
     border: Color4.create(1.0, 0.48, 0.92, 1),
+  },
+  purple: {
+    top: Color4.create(0.80, 0.40, 1.0, 0.98),
+    bottom: Color4.create(0.31, 0.025, 0.72, 0.98),
+    border: Color4.create(0.90, 0.56, 1.0, 1),
   },
   green: {
     top: Color4.create(0.08, 0.76, 0.50, 0.98),
@@ -425,6 +450,7 @@ const BUTTON_GRADIENTS: Record<ButtonTone, { top: Color4; bottom: Color4; border
 const BUTTON_TEXTURES: Record<ButtonTone, string> = {
   cyan: 'assets/images/ui/button-cyan.png',
   magenta: 'assets/images/ui/button-magenta.png',
+  purple: 'assets/images/ui/button-magenta.png',
   green: 'assets/images/ui/button-green.png',
   gold: 'assets/images/ui/button-gold.png',
   red: 'assets/images/ui/button-magenta.png',
@@ -435,11 +461,17 @@ function playButtonSound(): void {
   AudioSource.playSound(buttonSoundEntity, BUTTON_SOUND, true)
 }
 
+function playButtonHoverSound(): void {
+  const now = Date.now()
+  if (buttonHoverSoundEntity === engine.RootEntity || now - lastHoverSoundAt < 90) return
+  lastHoverSoundAt = now
+  AudioSource.playSound(buttonHoverSoundEntity, BUTTON_SOUND, true)
+}
+
 function runButtonAction(action: () => void): void {
   const now = Date.now()
   if (now < buttonActionLockedUntil) return
   buttonActionLockedUntil = now + (isMobile() ? 240 : 80)
-  playButtonSound()
   dispatchUiAction(action)
 }
 
@@ -550,10 +582,74 @@ function GradientFill({ tone, borderRadius = 16 }: { tone: ButtonTone; borderRad
       uiBackground={{
         texture: { src: BUTTON_TEXTURES[tone] },
         textureMode: 'stretch',
-        color: tone === 'red' ? Color4.create(0.92, 0.34, 0.38, 1) : Color4.White(),
+        color: tone === 'red'
+          ? Color4.create(0.92, 0.34, 0.38, 1)
+          : tone === 'purple' ? Color4.create(0.90, 0.68, 1.0, 1) : Color4.White(),
       }}
     />
   )
+}
+
+function ButtonLabelGraphic({ label, height, maxWidth, useRankMenuArt = true, artOverride }: { label: string; height: number; maxWidth?: number; useRankMenuArt?: boolean; artOverride?: { src: string; aspect: number } }): ReactEcs.JSX.Element | null {
+  const art = artOverride ?? (label === 'MENU' && useRankMenuArt
+    ? RANK_MENU_ART[getDanceRankIndex(gameState.rankPoints)]
+    : label === 'MENU'
+      ? { src: 'assets/images/ui/levels/menu-bw.png', aspect: 1709 / 560 }
+    : BUTTON_LABEL_ART[label])
+  if (!art) return null
+  const imageHeight = height * 0.62
+  const imageWidth = Math.min(art.aspect * imageHeight, maxWidth ?? art.aspect * imageHeight)
+  return <UiEntity uiTransform={{ width: imageWidth, height: imageHeight, zIndex: 2, pointerFilter: 'none' }}
+    uiBackground={{ texture: { src: art.src }, textureMode: 'stretch', color: Color4.White() }} />
+}
+
+let hoveredButtonKey = ''
+let pressedButtonKey = ''
+let clickedButtonKey = ''
+let clickAnimationLockedUntil = 0
+
+function beginButtonPress(buttonKey: string): void {
+  pressedButtonKey = buttonKey
+  playButtonSound()
+}
+
+function beginButtonHover(buttonKey: string): void {
+  if (hoveredButtonKey === buttonKey) return
+  hoveredButtonKey = buttonKey
+  if (!isMobile()) playButtonHoverSound()
+}
+
+function finishButtonPress(buttonKey: string, action: () => void): void {
+  if (pressedButtonKey !== buttonKey) return
+  pressedButtonKey = ''
+  const now = Date.now()
+  if (now < clickAnimationLockedUntil) return
+  clickAnimationLockedUntil = now + 150
+  clickedButtonKey = buttonKey
+  setTimeout(() => {
+    if (clickedButtonKey === buttonKey) clickedButtonKey = ''
+    runButtonAction(action)
+  }, 110)
+}
+
+function HoverAnimation({ buttonKey, borderRadius = 16 }: { buttonKey: string; borderRadius?: number }): ReactEcs.JSX.Element | null {
+  const pressed = pressedButtonKey === buttonKey || clickedButtonKey === buttonKey
+  if (hoveredButtonKey !== buttonKey && !pressed) return null
+  const phase = (Math.sin(Date.now() / 115) + 1) * 0.5
+  return <UiEntity
+    uiTransform={{
+      positionType: 'absolute',
+      position: { top: 0, left: 0 },
+      width: '100%',
+      height: '100%',
+      borderRadius,
+      borderWidth: pressed ? 4 : 2,
+      borderColor: Color4.create(1, 1, 1, pressed ? 1 : 0.48 + phase * 0.42),
+      pointerFilter: 'none',
+      zIndex: 8,
+    }}
+    uiBackground={{ color: pressed ? Color4.create(0.02, 0.01, 0.06, 0.30) : Color4.create(1, 1, 1, 0.035 + phase * 0.075) }}
+  />
 }
 
 function MenuButton({
@@ -566,6 +662,8 @@ function MenuButton({
   marginBottom = 0,
   borderRadius = 16,
   disabled = false,
+  useRankMenuColors = true,
+  menuArt,
 }: {
   label: string
   tone: ButtonTone
@@ -576,9 +674,28 @@ function MenuButton({
   marginBottom?: number
   borderRadius?: number
   disabled?: boolean
+  useRankMenuColors?: boolean
+  menuArt?: { src: string; aspect: number }
 }): ReactEcs.JSX.Element {
+  const hoverKey = `menu-button:${label}`
   const gradient = BUTTON_GRADIENTS[tone]
+  const rankMenu = label === 'MENU' && useRankMenuColors
+  const menuRank = getDanceRank(gameState.rankPoints)
+  const hitApprenticeMenu = getDanceRankIndex(gameState.rankPoints) === 0
+  const menuBottom = hitApprenticeMenu ? Color4.create(0.62, 0.015, 0.045, 0.99) : Color4.create(
+    menuRank.primary.r + (1 - menuRank.primary.r) * 0.22,
+    menuRank.primary.g + (1 - menuRank.primary.g) * 0.22,
+    menuRank.primary.b + (1 - menuRank.primary.b) * 0.22,
+    0.98,
+  )
+  const menuTop = hitApprenticeMenu ? Color4.create(1.0, 0.07, 0.11, 0.99) : Color4.create(
+    menuRank.secondary.r + (1 - menuRank.secondary.r) * 0.40,
+    menuRank.secondary.g + (1 - menuRank.secondary.g) * 0.40,
+    menuRank.secondary.b + (1 - menuRank.secondary.b) * 0.40,
+    0.98,
+  )
   const touchHeight = isMobile() ? Math.max(48, height) : height
+  const labelArt = menuArt ?? (label === 'MENU' ? RANK_MENU_ART[getDanceRankIndex(gameState.rankPoints)] : BUTTON_LABEL_ART[label])
 
   return (
     <UiEntity
@@ -590,15 +707,19 @@ function MenuButton({
         justifyContent: 'center',
         margin: { bottom: marginBottom },
         borderRadius,
-        borderWidth: 2,
-        borderColor: disabled ? Color4.create(0.30, 0.34, 0.44, 0.85) : gradient.border,
+        borderWidth: rankMenu && isMobile() ? 0 : 2,
+        borderColor: disabled ? Color4.create(0.30, 0.34, 0.44, 0.85) : rankMenu ? menuTop : gradient.border,
         overflow: 'hidden',
         pointerFilter: disabled ? 'none' : 'block',
       }}
-      uiBackground={{ color: disabled ? Color4.create(0.09, 0.11, 0.16, 0.96) : gradient.bottom }}
-      onMouseDown={disabled ? undefined : () => runButtonAction(onClick)}
+      uiBackground={{ color: disabled ? Color4.create(0.09, 0.11, 0.16, 0.96) : rankMenu ? menuBottom : gradient.bottom }}
+      onMouseDown={disabled ? undefined : () => beginButtonPress(hoverKey)}
+      onMouseUp={disabled ? undefined : () => finishButtonPress(hoverKey, onClick)}
+      onMouseEnter={disabled ? undefined : () => beginButtonHover(hoverKey)}
+      onMouseLeave={disabled ? undefined : () => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
     >
-      {disabled ? null : <GradientFill tone={tone} borderRadius={borderRadius} />}
+      {disabled || rankMenu ? null : <GradientFill tone={tone} borderRadius={borderRadius} />}
+      {disabled || !rankMenu ? null : <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '55%', borderRadius, pointerFilter: 'none' }} uiBackground={{ color: menuTop }} />}
       <UiEntity
         uiTransform={{
           positionType: 'absolute',
@@ -610,13 +731,16 @@ function MenuButton({
         }}
         uiBackground={{ color: Color4.create(1, 1, 1, 0.10) }}
       />
-      <Label
-        value={label}
-        fontSize={fontSize}
-        color={disabled ? Color4.create(0.66, 0.70, 0.78, 1) : Color4.White()}
-        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerFilter: 'none' }}
-        textAlign="middle-center"
-      />
+      {labelArt
+        ? <ButtonLabelGraphic label={label} height={touchHeight} maxWidth={typeof width === 'number' ? width * 0.9 : undefined} useRankMenuArt={useRankMenuColors} artOverride={menuArt} />
+        : <Label
+            value={label}
+            fontSize={fontSize}
+            color={disabled ? Color4.create(0.66, 0.70, 0.78, 1) : Color4.White()}
+            uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', zIndex: 2, pointerFilter: 'none' }}
+            textAlign="middle-center"
+          />}
+      <HoverAnimation buttonKey={hoverKey} borderRadius={borderRadius} />
     </UiEntity>
   )
 }
@@ -761,7 +885,7 @@ function TimingVisual(): ReactEcs.JSX.Element {
   return (
     <UiEntity uiTransform={{ width: mobile ? '100%' : 400, height: mobile ? 150 : 126, flexDirection: 'column', alignItems: 'center' }}>
       <UiEntity
-        uiTransform={{ width: mobile ? '72%' : '100%', height: mobile ? 30 : 38, positionType: 'relative', borderRadius: 15, overflow: 'hidden', borderWidth: 1, borderColor: Color4.create(0.46, 0.66, 1, 0.75) }}
+        uiTransform={{ width: mobile ? '72%' : '100%', height: mobile ? 30 : 38, positionType: 'relative', borderRadius: 15, overflow: 'visible', borderWidth: 1, borderColor: Color4.create(0.46, 0.66, 1, 0.75) }}
         uiBackground={{ color: Color4.create(0.03, 0.04, 0.12, 0.96) }}
       >
         <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: '72%' }, width: '20%', height: '100%' }}
@@ -936,13 +1060,11 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
   ]
 
   const nextTutorialPage = (): void => {
-    playButtonSound()
     const nextPage = Math.min(5, tutorialPage + 1)
     if ((tutorialPage === 0 && nextPage === 1) || nextPage === 3) tutorialSequenceStartedAt = Date.now()
     tutorialPage = nextPage
   }
   const previousTutorialPage = (): void => {
-    playButtonSound()
     const nextPage = Math.max(0, tutorialPage - 1)
     if ((tutorialPage === 2 && nextPage === 1) || nextPage === 3) tutorialSequenceStartedAt = Date.now()
     tutorialPage = nextPage
@@ -953,7 +1075,7 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
 
   const short = height < 260
   const progressHeight = short ? 0 : 16
-  const navHeight = mobile ? 44 : 40
+  const navHeight = 58
   const navMargin = short ? 4 : 8
   const panelHeight = Math.max(120, height - progressHeight - navHeight - navMargin)
   const panelPadding = short ? 6 : mobile ? 10 : 12
@@ -973,28 +1095,41 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
         {!short ? <Label value={`STEP ${tutorialPage + 1}  /  5`} fontSize={mobile ? 16 : 17} color={HIT_COLOR} uiTransform={{ width: '100%', height: stepHeight }} textAlign="middle-center" /> : null}
         <Label value={titles[tutorialPage]} fontSize={Math.min(short ? 22 : mobile ? 32 : 36, width / Math.max(9, titles[tutorialPage].length * 0.56))} color={Color4.White()} uiTransform={{ width: '100%', height: titleHeight, flexShrink: 0 }} textAlign="middle-center" />
         <Label value={descriptions[tutorialPage]} fontSize={short ? 14 : Math.min(mobile ? 19 : 20, width / 18)} color={Color4.create(0.78, 0.87, 0.98, 1)} uiTransform={{ width: '94%', height: descriptionHeight, flexShrink: 0 }} textAlign="middle-center" />
-        <UiEntity uiTransform={{ width: '100%', height: visualHeight, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+        <UiEntity uiTransform={{ width: '100%', height: visualHeight, flexShrink: 0, alignItems: 'center', justifyContent: 'center', positionType: 'relative', position: { top: mobile && tutorialPage === 3 ? 12 : 0 } }}>
         {!compactExample ? (tutorialPage === 0 ? <SequenceVisual /> : tutorialPage === 1 ? <SequenceCompletionVisual /> : tutorialPage === 2 ? <TimingVisual /> : tutorialPage === 3 ? <ReverseStyleVisual /> : <JudgmentGuideVisual />) : tutorialPage === 2 ? (
-          <UiEntity uiTransform={{ width: '92%', height: Math.min(mobile ? 42 : 38, visualHeight - 4), positionType: 'relative', overflow: 'hidden', borderRadius: 14 }} uiBackground={{ color: Color4.create(0.03, 0.04, 0.12, 1) }}>
+          <UiEntity uiTransform={{ width: '92%', height: Math.min(mobile ? 42 : 38, visualHeight - 4), positionType: 'relative', overflow: 'visible', borderRadius: 14 }} uiBackground={{ color: Color4.create(0.03, 0.04, 0.12, 1) }}>
             <UiEntity uiTransform={{ positionType: 'absolute', position: { left: '72%', top: 0 }, width: '20%', height: '100%' }} uiBackground={{ texture: { src: JUDGMENT_GRADIENT }, textureMode: 'stretch' }} />
             <UiEntity uiTransform={{ positionType: 'absolute', position: { left: `${5 + Math.min(1, marker / 0.68) * 74}%` as PercentUnit, top: 2 }, width: Math.min(26, visualHeight - 8), height: Math.min(26, visualHeight - 8), borderRadius: 14 }} uiBackground={{ color: marker > 0.68 ? HIT_COLOR : DIR_COLOR.up }} />
+            {mobile && marker >= 0.68 ? <UiEntity uiTransform={{ positionType: 'absolute', position: { left: '79%', top: 0 }, width: 1, height: '100%', zIndex: 4, pointerFilter: 'none' }}>
+              <SparkleBurst progress={(marker - 0.68) / 0.32} color={HIT_COLOR} width={1} height={Math.min(mobile ? 42 : 38, visualHeight - 4)} distance={38} count={12} />
+            </UiEntity> : null}
           </UiEntity>
-        ) : tutorialPage === 4 ? <UiEntity uiTransform={{ width: '100%', height: Math.min(54, visualHeight), flexDirection: 'row', justifyContent: 'space-between' }}>
-          {(['GOOD!', 'COOL!', 'GREAT!', 'PERFECT!'] as JudgmentText[]).map(text => <UiEntity key={text} uiTransform={{ width: '24%', height: '100%' }} uiBackground={{ texture: { src: JUDGMENT_TEXTURES[text] }, textureMode: 'stretch' }} />)}
+        ) : tutorialPage === 4 ? <UiEntity uiTransform={{ width: '100%', height: Math.min(78, visualHeight), flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <UiEntity uiTransform={{ width: '100%', height: Math.min(52, Math.max(30, visualHeight - 24)), flexDirection: 'row', justifyContent: 'space-between' }}>
+            {(['GOOD!', 'COOL!', 'GREAT!', 'PERFECT!'] as JudgmentText[]).map(text => <UiEntity key={text} uiTransform={{ width: '24%', height: '100%' }} uiBackground={{ texture: { src: JUDGMENT_TEXTURES[text] }, textureMode: 'stretch' }} />)}
+          </UiEntity>
+          <UiEntity uiTransform={{ width: '100%', height: 24, flexDirection: 'row', justifyContent: 'space-between' }}>
+            {['100 PTS', '400 PTS', '700 PTS', '1000 PTS'].map(points => <Label key={points} value={points} fontSize={mobile ? 15 : 13} color={Color4.White()}
+              uiTransform={{ width: '24%', height: 24 }} textAlign="middle-center" textWrap="nowrap" />)}
+          </UiEntity>
         </UiEntity> : <UiEntity uiTransform={{ width: '100%', height: Math.min(mobile ? 70 : 76, visualHeight), flexDirection: 'row', justifyContent: 'center' }}>
           {inputDirections.map((direction, index) => {
             const reverse = tutorialPage === 3 && (index === 0 || index === 2)
             const complete = tutorialPage > 0 && index < step
             const display = reverse && !complete ? (direction === 'left' ? 'right' : 'left') : direction
             const size = Math.min(mobile ? 62 : 68, visualHeight - 4, (width - 32) / 4)
-            return <UiEntity key={direction} uiTransform={{ width: size, height: size, flexShrink: 0, margin: { left: 4, right: 4 }, borderRadius: 8, borderWidth: 2, borderColor: complete ? HIT_COLOR : reverse ? REVERSE_COLOR : DIR_COLOR[direction], padding: 4 }} uiBackground={{ texture: { src: CARDINAL_ARROW_TEXTURE[DIR_SYMBOL[display]] }, textureMode: 'stretch', color: complete ? HIT_COLOR : Color4.White() }} />
+            const sparkleProgress = ((Date.now() - tutorialSequenceStartedAt) / 520) % 1
+            const sparkling = mobile && complete && index === Math.max(0, Math.min(inputDirections.length - 1, step - 1))
+            return <UiEntity key={direction} uiTransform={{ width: size, height: size, positionType: 'relative', flexShrink: 0, margin: { left: 4, right: 4 }, borderRadius: 8, borderWidth: 2, borderColor: complete ? HIT_COLOR : reverse ? REVERSE_COLOR : DIR_COLOR[direction], padding: 4 }} uiBackground={{ texture: { src: CARDINAL_ARROW_TEXTURE[DIR_SYMBOL[display]] }, textureMode: 'stretch', color: complete ? HIT_COLOR : Color4.White() }}>
+              {sparkling ? <SparkleBurst progress={sparkleProgress} color={HIT_COLOR} width={size} height={size} distance={size * 0.56} count={10} /> : null}
+            </UiEntity>
           })}
         </UiEntity>}
         </UiEntity>
       </UiEntity>
-      <UiEntity uiTransform={{ width: '90%', height: navHeight, flexShrink: 0, flexDirection: 'row', justifyContent: 'space-between', margin: { top: navMargin } }}>
-        <MenuButton label={tutorialPage === 0 ? 'SKIP' : 'BACK'} tone="magenta" onClick={tutorialPage === 0 ? skipTutorial : previousTutorialPage} width="32%" height={navHeight} fontSize={mobile ? 18 : 17} borderRadius={13} />
-        <MenuButton label={tutorialPage === 4 ? 'SHOW MENU' : 'NEXT'} tone={tutorialPage === 4 ? 'gold' : 'cyan'} onClick={nextTutorialPage} width="56%" height={navHeight} fontSize={Math.min(mobile ? 21 : 20, width * 0.56 / 7)} borderRadius={13} />
+      <UiEntity uiTransform={{ width: '100%', height: navHeight, flexShrink: 0, flexDirection: 'row', justifyContent: 'space-between', margin: { top: navMargin } }}>
+        <MenuButton label={tutorialPage === 0 ? 'SKIP' : 'BACK'} tone="magenta" onClick={tutorialPage === 0 ? skipTutorial : previousTutorialPage} width="38%" height={navHeight} fontSize={22} borderRadius={13} />
+        <MenuButton label={tutorialPage === 4 ? 'SHOW MENU' : 'NEXT'} tone={tutorialPage === 4 ? 'gold' : 'cyan'} onClick={nextTutorialPage} width="58%" height={navHeight} fontSize={Math.min(25, width * 0.58 / 7)} borderRadius={13} />
       </UiEntity>
     </UiEntity>
   )
@@ -1002,6 +1137,7 @@ function TutorialSlide({ width = 500, height = 330 }: { width?: number; height?:
 
 function CloseButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const hoverKey = 'close-button'
   return (
     <UiEntity
       uiTransform={{
@@ -1017,21 +1153,20 @@ function CloseButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element
         pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.04, 0.03, 0.08, 0.92) }}
-      onMouseDown={() => runButtonAction(onClick)}
+      onMouseDown={() => beginButtonPress(hoverKey)}
+      onMouseUp={() => finishButtonPress(hoverKey, onClick)}
+      onMouseEnter={() => beginButtonHover(hoverKey)}
+      onMouseLeave={() => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
     >
-      <Label
-        value="X"
-        fontSize={24}
-        color={Color4.create(1.0, 0.62, 0.92, 1)}
-        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
-        textAlign="middle-center"
-      />
+      <ButtonLabelGraphic label="X" height={mobile ? 42 : 34} maxWidth={mobile ? 38 : 30} />
+      <HoverAnimation buttonKey={hoverKey} borderRadius={12} />
     </UiEntity>
   )
 }
 
 function BackButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element {
   const mobile = isMobile()
+  const hoverKey = 'back-button'
   return (
     <UiEntity
       uiTransform={{
@@ -1043,19 +1178,17 @@ function BackButton({ onClick }: { onClick: () => void }): ReactEcs.JSX.Element 
         justifyContent: 'center',
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Color4.create(0.42, 0.82, 1.0, 0.85),
+        borderColor: Color4.create(1.0, 0.40, 0.86, 0.85),
         pointerFilter: 'block',
       }}
-      uiBackground={{ color: Color4.create(0.06, 0.06, 0.14, 0.92) }}
-      onMouseDown={() => runButtonAction(onClick)}
+      uiBackground={{ color: Color4.create(0.16, 0.025, 0.13, 0.92) }}
+      onMouseDown={() => beginButtonPress(hoverKey)}
+      onMouseUp={() => finishButtonPress(hoverKey, onClick)}
+      onMouseEnter={() => beginButtonHover(hoverKey)}
+      onMouseLeave={() => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
     >
-      <Label
-        value="BACK"
-        fontSize={18}
-        color={Color4.create(0.70, 0.92, 1.0, 1)}
-        uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', pointerFilter: 'none' }}
-        textAlign="middle-center"
-      />
+      <ButtonLabelGraphic label="BACK" height={mobile ? 46 : 38} maxWidth={mobile ? 82 : 82} />
+      <HoverAnimation buttonKey={hoverKey} borderRadius={12} />
     </UiEntity>
   )
 }
@@ -1478,6 +1611,10 @@ function ScorePanel(): ReactEcs.JSX.Element {
   const mobile = isMobile()
   const pointsWidth = mobile ? 160 : 190
   const pointsHeight = mobile ? 42 : 48
+  const scoreDigits = String(gameState.score).length
+  const scoreFontSize = mobile
+    ? scoreDigits >= 8 ? 24 : scoreDigits >= 6 ? 27 : 30
+    : scoreDigits >= 9 ? 28 : scoreDigits >= 7 ? 31 : 35
 
   return (
     <UiEntity
@@ -1512,10 +1649,11 @@ function ScorePanel(): ReactEcs.JSX.Element {
         key={`score-${gameState.score}`}
         value={String(gameState.score)}
         font="sans-serif"
-        fontSize={mobile ? 30 : 35}
+        fontSize={scoreFontSize}
         color={Color4.create(1.0, 0.88, 0.18, 1)}
-        uiTransform={{ width: '100%', height: mobile ? 34 : 40 }}
+        uiTransform={{ width: '100%', height: mobile ? 34 : 40, flexShrink: 0 }}
         textAlign="middle-right"
+        textWrap="nowrap"
       />
       <Label
         value={`MAX PERFECT COMBO  ${gameState.maxCombo}`}
@@ -1922,13 +2060,10 @@ function DailyGoalsPanel(): ReactEcs.JSX.Element {
       }}
       uiBackground={{ color: Color4.create(0.02, 0.02, 0.07, 0.62) }}
     >
-      <Label
-        value="DAILY GOALS"
-        fontSize={15}
-        color={Color4.create(0.72, 0.88, 1, 1)}
-        uiTransform={{ width: '100%', height: 18, margin: { bottom: 4 } }}
-        textAlign="middle-left"
-      />
+      <UiEntity uiTransform={{ width: '100%', height: 18, margin: { bottom: 4 }, alignItems: 'flex-start', justifyContent: 'center', pointerFilter: 'none' }}>
+        <UiEntity uiTransform={{ width: 18 * DAILY_GOALS_TITLE_ASPECT, height: 18, pointerFilter: 'none' }}
+          uiBackground={{ texture: { src: DAILY_GOALS_TITLE }, textureMode: 'stretch' }} />
+      </UiEntity>
       <UiEntity uiTransform={{ width: '100%', height: 10, margin: { bottom: 7 } }} uiBackground={{ color: Color4.create(0.08, 0.08, 0.16, 0.95) }}>
         <UiEntity uiTransform={{ width: rankPct, height: '100%' }} uiBackground={{ color: Color4.create(0.9, 0.25, 1, 0.9) }} />
       </UiEntity>
@@ -1961,16 +2096,16 @@ function DailyGoalsPanel(): ReactEcs.JSX.Element {
   )
 }
 
-function DailyGoalsMenuCard({ compact = false, width, height }: { compact?: boolean; width?: number; height?: number }): ReactEcs.JSX.Element {
+function DailyGoalsMenuCard({ compact = false, width, height, transparent = false }: { compact?: boolean; width?: number; height?: number; transparent?: boolean }): ReactEcs.JSX.Element {
   const mobile = isMobile()
   const rankPct = `${(gameState.rankProgress * 100).toFixed(1)}%` as PercentUnit
-  const cardHeight = height ?? (compact ? (mobile ? 116 : 144) : mobile ? 136 : 158)
-  const titleHeight = Math.min(compact ? (mobile ? 26 : 22) : 30, cardHeight * (mobile ? 0.23 : 0.20))
-  const verticalPadding = compact ? (mobile ? 8 : 12) : mobile ? 10 : 16
-  const progressHeight = compact || mobile ? 6 : 8
-  const progressMargin = compact ? 4 : mobile ? 3 : 6
-  const rowHeight = Math.min(compact ? 28 : 30, (cardHeight - titleHeight - verticalPadding - progressHeight - progressMargin) / 3)
-  const contentWidth = (width ?? (compact ? 226 : Math.min(410, getSafeCanvas().width - 48))) - 20
+  const cardHeight = height ?? (compact ? (mobile ? 154 : 144) : mobile ? 190 : 158)
+  const titleHeight = Math.min(mobile ? 34 : compact ? 22 : 30, cardHeight * (mobile ? 0.22 : 0.20))
+  const verticalPadding = mobile ? 12 : compact ? 12 : 16
+  const progressHeight = mobile ? 8 : compact ? 6 : 8
+  const progressMargin = mobile ? 6 : compact ? 4 : 6
+  const rowHeight = Math.min(mobile ? 38 : compact ? 28 : 30, (cardHeight - titleHeight - verticalPadding - progressHeight - progressMargin) / 3)
+  const contentWidth = (width ?? (compact ? 226 : Math.min(410, getSafeCanvas().width - 48))) - (mobile ? 24 : 20)
 
   return (
     <UiEntity
@@ -1980,43 +2115,67 @@ function DailyGoalsMenuCard({ compact = false, width, height }: { compact?: bool
         flexShrink: 0,
         flexDirection: 'column',
         padding: compact
-          ? { top: mobile ? 4 : 6, right: 6, bottom: mobile ? 4 : 6, left: 6 }
-          : { top: mobile ? 5 : 8, right: 10, bottom: mobile ? 5 : 8, left: 10 },
+          ? { top: mobile ? 6 : 6, right: mobile ? 10 : 6, bottom: mobile ? 6 : 6, left: mobile ? 10 : 6 }
+          : { top: mobile ? 7 : 8, right: mobile ? 12 : 10, bottom: mobile ? 7 : 8, left: mobile ? 12 : 10 },
         margin: { bottom: height ? 0 : compact ? (mobile ? 7 : 10) : mobile ? 6 : 14 },
+        borderRadius: mobile ? 14 : 10,
+        borderWidth: transparent ? 0 : mobile ? 1 : 0,
+        borderColor: Color4.create(0.30, 0.78, 1.0, transparent ? 0 : mobile ? 0.58 : 0),
       }}
+      uiBackground={{ color: Color4.create(0.015, 0.02, 0.075, transparent ? 0 : mobile ? 0.92 : 0) }}
     >
-      <Label
-        value={compact ? 'GOALS' : 'DAILY GOALS'}
-        fontSize={Math.min(compact ? (mobile ? 21 : 18) : mobile ? 24 : 22, titleHeight * 0.9)}
-        color={Color4.create(0.52, 0.92, 1, 1)}
-        uiTransform={{ width: '100%', height: titleHeight }}
-        textAlign="middle-left"
-      />
+      <UiEntity uiTransform={{ width: '100%', height: titleHeight, alignItems: 'flex-start', justifyContent: 'center', pointerFilter: 'none' }}>
+        <UiEntity
+          uiTransform={{ width: Math.min(contentWidth, titleHeight * DAILY_GOALS_TITLE_ASPECT), height: Math.min(titleHeight, contentWidth / DAILY_GOALS_TITLE_ASPECT), pointerFilter: 'none' }}
+          uiBackground={{ texture: { src: DAILY_GOALS_TITLE }, textureMode: 'stretch' }}
+        />
+      </UiEntity>
       <UiEntity uiTransform={{ width: '100%', height: compact ? 6 : mobile ? 6 : 8, margin: { bottom: compact ? 4 : mobile ? 3 : 6 } }} uiBackground={{ color: Color4.create(0.08, 0.08, 0.16, 0.95) }}>
         <UiEntity uiTransform={{ width: rankPct, height: '100%' }} uiBackground={{ color: Color4.create(0.9, 0.25, 1, 0.9) }} />
       </UiEntity>
 
-      {gameState.dailyGoals.map(goal => (
-        <UiEntity
-          key={`menu-${goal.id}`}
-          uiTransform={{ width: '100%', height: rowHeight, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          <Label
-            value={goal.completed ? `${goal.label} DONE` : goal.label}
-            fontSize={Math.min(compact ? (mobile ? 17 : 15) : mobile ? 19 : 17, rowHeight * 0.78, contentWidth * 0.64 / Math.max(8, (goal.label.length + (goal.completed ? 5 : 0)) * 0.6))}
-            color={goal.completed ? Color4.create(0.42, 1, 0.58, 1) : Color4.create(0.82, 0.82, 0.9, 1)}
-            uiTransform={{ width: compact ? '64%' : mobile ? '66%' : '70%', height: '100%' }}
-            textAlign="middle-left"
-          />
-          <Label
-            value={goal.completed ? `+${goal.rewardRp}` : `${goal.progress}/${goal.target}`}
-            fontSize={Math.min(compact ? (mobile ? 17 : 15) : mobile ? 19 : 17, rowHeight * 0.78)}
-            color={Color4.create(1, 0.82, 0.22, 1)}
-            uiTransform={{ width: compact ? '34%' : mobile ? '32%' : '28%', height: '100%' }}
-            textAlign="middle-right"
-          />
-        </UiEntity>
-      ))}
+      {gameState.dailyGoals.map(goal => {
+        const shortMobileLabel = mobile ? goal.label.replace(/^\d+(?:x)?\s+/, '') : goal.label
+        const displayLabel = goal.completed
+          ? mobile ? `✓ ${shortMobileLabel}` : `${shortMobileLabel} DONE`
+          : shortMobileLabel
+        const progressText = goal.completed ? `+${goal.rewardRp} RP` : `${goal.progress}/${goal.target}`
+        const labelWidth = mobile ? 0.58 : compact ? 0.64 : 0.70
+        const progressWidth = mobile ? 0.40 : compact ? 0.34 : 0.28
+        const labelFont = Math.min(
+          mobile ? 21 : compact ? 15 : 17,
+          rowHeight * (mobile ? 0.72 : 0.78),
+          contentWidth * labelWidth / Math.max(6, displayLabel.length * 0.56),
+        )
+        const progressFont = Math.min(
+          mobile ? 20 : compact ? 15 : 17,
+          rowHeight * (mobile ? 0.68 : 0.78),
+          contentWidth * progressWidth / Math.max(4, progressText.length * 0.58),
+        )
+        return (
+          <UiEntity
+            key={`menu-${goal.id}`}
+            uiTransform={{ width: '100%', height: rowHeight, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <Label
+              value={displayLabel}
+              fontSize={mobile ? Math.max(14, labelFont) : labelFont}
+              color={goal.completed ? Color4.create(0.42, 1, 0.58, 1) : Color4.create(0.88, 0.90, 1, 1)}
+              uiTransform={{ width: mobile ? '58%' : compact ? '64%' : '70%', height: '100%' }}
+              textAlign="middle-left"
+              textWrap="nowrap"
+            />
+            <Label
+              value={progressText}
+              fontSize={progressFont}
+              color={Color4.create(1, 0.82, 0.22, 1)}
+              uiTransform={{ width: mobile ? '40%' : compact ? '34%' : '28%', height: '100%' }}
+              textAlign="middle-right"
+              textWrap="nowrap"
+            />
+          </UiEntity>
+        )
+      })}
     </UiEntity>
   )
 }
@@ -2281,9 +2440,10 @@ function OfficialMobileControls(): ReactEcs.JSX.Element | null {
             borderRadius: hitButtonSize / 2,
             borderWidth: 3,
             borderColor: Color4.create(HIT_COLOR.r, HIT_COLOR.g, HIT_COLOR.b, 0.42),
+            pointerFilter: 'block',
           }}
           uiBackground={{ color: Color4.create(0.02, 0.01, 0.015, 0.92) }}
-          uiInputBinding={{ actions: [InputAction.IA_JUMP] }}
+          onMouseDown={requestMobileHit}
         >
           <UiEntity
             uiTransform={{ width: hitInnerSize, height: hitInnerSize, alignItems: 'center', justifyContent: 'center', borderRadius: hitInnerSize / 2, borderWidth: 3, borderColor: HIT_COLOR, pointerFilter: 'none' }}
@@ -2396,38 +2556,61 @@ function LobbyChoiceScreen(): ReactEcs.JSX.Element {
   const mobile = isMobile()
   const safe = getSafeCanvas()
   const width = Math.min(560, safe.width)
-  const short = safe.height < 520
-  const logoHeight = short ? Math.min(110, width * 0.24) : Math.min(290, width * 0.52)
-  const logoOutset = short ? logoHeight * 0.44 : logoHeight * 0.62
+  // Mobile Explorer often reports a tall logical canvas even in landscape.
+  // Use the aspect ratio too, otherwise the portrait stack crushes the goals
+  // card into a few pixels on wide phones.
+  // Preserve the original spacious desktop tutorial. The new horizontal
+  // composition applies only after the tutorial reaches the main menu.
+  const mobileLandscape = mobile && safe.width > safe.height * 1.35
+  const horizontalMenuLayout = tutorialPage >= 5 && (!mobile || mobileLandscape)
+  const wideShell = horizontalMenuLayout || mobileLandscape
+  const short = safe.height < 520 || wideShell
+  const logoHeight = wideShell
+    ? Math.min(245, width * 0.44)
+    : short ? Math.min(110, width * 0.24) : Math.min(290, width * 0.52)
+  const logoOutsetFactor = wideShell ? 0.72 : short ? 0.44 : 0.62
+  const logoOutset = logoHeight * logoOutsetFactor
   const maxPanelHeight = tutorialPage < 5 ? 590 : 620
   const height = Math.min(short ? 400 : maxPanelHeight, Math.max(260, safe.height - logoOutset - 8))
   const padding = short ? 8 : 12
   const contentWidth = width - padding * 2 - 4
-  const logoInsetHeight = short ? logoHeight * 0.58 : logoHeight * 0.40
+  const logoInsetHeight = wideShell ? 90 : short ? logoHeight * 0.58 : logoHeight * 0.40
   const rankHeight = tutorialPage < 5 ? 0 : short ? 28 : 40
   const bodyHeight = height - padding * 2 - 4 - logoInsetHeight - rankHeight
-  const replayTutorial = (): void => runButtonAction(() => { tutorialPage = 0; tutorialSequenceStartedAt = Date.now() })
-  const buttons = <UiEntity uiTransform={{ width: short ? '54%' : '100%', height: short ? bodyHeight : 148, flexShrink: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-    <MenuButton label="DANCE" tone="cyan" onClick={openPlayMenu} width="100%" height={44} fontSize={24} marginBottom={short ? 3 : 6} />
-    <MenuButton label="LEADERBOARDS" tone="gold" onClick={openLeaderboardMenu} width="100%" height={44} fontSize={Math.min(24, (short ? contentWidth * 0.54 : contentWidth) / 9)} marginBottom={short ? 3 : 6} />
-    <MenuButton label="JUST WATCH" tone="magenta" onClick={watchLiveMode} width="100%" height={44} fontSize={22} />
+  const replayTutorial = (): void => { tutorialPage = 0; tutorialSequenceStartedAt = Date.now() }
+  const tutorialHoverKey = 'replay-tutorial-button'
+  const menuButtonHeight = horizontalMenuLayout ? 58 : 44
+  const menuButtonGap = horizontalMenuLayout ? 7 : short ? 3 : 6
+  const buttons = <UiEntity uiTransform={{ width: short ? '46%' : '100%', height: short ? bodyHeight : 148, flexShrink: 0, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+    {horizontalMenuLayout ? <UiEntity uiTransform={{ width: '100%', height: 48, flexShrink: 0, pointerFilter: 'none' }} /> : null}
+    <MenuButton label="DANCE" tone="cyan" onClick={openPlayMenu} width="100%" height={menuButtonHeight} fontSize={horizontalMenuLayout ? 26 : 24} marginBottom={menuButtonGap} />
+    <MenuButton label="LEADERBOARD" tone="gold" onClick={openLeaderboardMenu} width="100%" height={menuButtonHeight} fontSize={Math.min(horizontalMenuLayout ? 25 : 24, (short ? contentWidth * 0.46 : contentWidth) / 9)} marginBottom={menuButtonGap} />
+    <MenuButton label="JUST WATCH" tone="magenta" onClick={watchLiveMode} width="100%" height={menuButtonHeight} fontSize={horizontalMenuLayout ? 25 : 22} />
   </UiEntity>
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
       <UiEntity uiTransform={{ positionType: 'relative', position: { top: logoOutset * 0.5 }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(0.46, 0.58, 1, 0.78) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
-        <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={short ? 0.44 : 0.62} />
+        <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={logoOutsetFactor} />
         <CloseButton onClick={watchLiveMode} />
         <UiEntity uiTransform={{ width: '100%', height: logoInsetHeight, flexShrink: 0, pointerFilter: 'none' }} />
         {tutorialPage >= 5 ? <MenuRankText width={contentWidth} height={rankHeight} /> : null}
         {tutorialPage < 5 ? <TutorialSlide width={contentWidth} height={bodyHeight} /> : <UiEntity uiTransform={{ width: '100%', height: bodyHeight, flexShrink: 0, flexDirection: short ? 'row' : 'column', alignItems: 'center', justifyContent: 'space-between' }}>
-          <UiEntity uiTransform={{ width: short ? '44%' : '100%', height: short ? bodyHeight : bodyHeight - 156, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <UiEntity uiTransform={{ width: '100%', height: mobile ? 48 : 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', pointerFilter: 'block' }} onMouseDown={replayTutorial}>
+          <UiEntity uiTransform={{ width: short ? '52%' : '100%', height: short ? bodyHeight : bodyHeight - 156, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <UiEntity
+              uiTransform={{ width: '100%', height: mobile ? 48 : 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 12, pointerFilter: 'block' }}
+              onMouseDown={() => beginButtonPress(tutorialHoverKey)}
+              onMouseUp={() => finishButtonPress(tutorialHoverKey, replayTutorial)}
+              onMouseEnter={() => beginButtonHover(tutorialHoverKey)}
+              onMouseLeave={() => { if (hoveredButtonKey === tutorialHoverKey) hoveredButtonKey = ''; if (pressedButtonKey === tutorialHoverKey) pressedButtonKey = '' }}
+            >
               <Label value="↻ TUTORIAL" fontSize={18} color={Color4.create(0.66, 0.78, 1, 1)} uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }} textAlign="middle-center" />
+              <HoverAnimation buttonKey={tutorialHoverKey} borderRadius={12} />
             </UiEntity>
             <DailyGoalsMenuCard
-              compact={short && !isMobile()}
-              width={short ? contentWidth * 0.44 : contentWidth}
-              height={isMobile()
+              transparent
+              compact={short && !horizontalMenuLayout}
+              width={short ? contentWidth * 0.52 : contentWidth}
+              height={horizontalMenuLayout || isMobile()
                 ? Math.min(190, Math.max(0, short ? bodyHeight - 44 : bodyHeight - 200))
                 : Math.min(158, short ? bodyHeight - 44 : bodyHeight - 200)}
             />
@@ -2472,16 +2655,9 @@ function getGlobalLeaderboardRows(): MatchPlayer[] {
 }
 
 function getLastDanceRows(): MatchPlayer[] {
-  const rowsByPlayer = new Map<string, MatchPlayer>()
-  const sourceRows = [...gameState.lastDanceLeaderboard, ...getActiveMatchEntries()]
-  for (const entry of sourceRows) {
-    const existing = rowsByPlayer.get(entry.playerId)
-    if (!existing || entry.score > existing.score || entry.maxCombo > existing.maxCombo) {
-      rowsByPlayer.set(entry.playerId, entry)
-    }
-  }
-
-  return Array.from(rowsByPlayer.values()).sort((a, b) => {
+  const activeRows = gameState.phase === 'playing' ? getActiveMatchEntries() : []
+  const rows = activeRows.length > 0 ? activeRows : gameState.lastDanceLeaderboard
+  return rows.slice().sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
     if (b.maxCombo !== a.maxCombo) return b.maxCombo - a.maxCombo
     if (b.rankPoints !== a.rankPoints) return b.rankPoints - a.rankPoints
@@ -2492,6 +2668,11 @@ function getLastDanceRows(): MatchPlayer[] {
 function LeaderboardTabButton({ id, label }: { id: 'global' | 'last'; label: string }): ReactEcs.JSX.Element {
   const active = leaderboardTab === id
   const mobile = isMobile()
+  const activeTone: ButtonTone = id === 'last' ? 'magenta' : 'gold'
+  const activeBorder = id === 'last'
+    ? Color4.create(0.94, 0.30, 1.0, 1)
+    : Color4.create(1.0, 0.86, 0.28, 1)
+  const hoverKey = `leaderboard-tab:${id}`
   return (
     <UiEntity
       uiTransform={{
@@ -2502,14 +2683,17 @@ function LeaderboardTabButton({ id, label }: { id: 'global' | 'last'; label: str
         justifyContent: 'center',
         borderRadius: 14,
         borderWidth: active ? 2 : 1,
-        borderColor: active ? Color4.create(1.0, 0.86, 0.28, 1) : Color4.create(0.46, 0.58, 1.0, 0.45),
+        borderColor: active ? activeBorder : Color4.create(0.46, 0.58, 1.0, 0.45),
         overflow: 'hidden',
         pointerFilter: 'block',
       }}
-      uiBackground={{ color: active ? Color4.create(0.35, 0.16, 0.04, 0.96) : Color4.create(0.04, 0.05, 0.12, 0.88) }}
-      onMouseDown={() => runButtonAction(() => { leaderboardTab = id; leaderboardPage = 0 })}
+      uiBackground={{ color: active ? (id === 'last' ? Color4.create(0.24, 0.03, 0.30, 0.96) : Color4.create(0.35, 0.16, 0.04, 0.96)) : Color4.create(0.04, 0.05, 0.12, 0.88) }}
+      onMouseDown={() => beginButtonPress(hoverKey)}
+      onMouseUp={() => finishButtonPress(hoverKey, () => { leaderboardTab = id; leaderboardPage = 0 })}
+      onMouseEnter={() => beginButtonHover(hoverKey)}
+      onMouseLeave={() => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
     >
-      {active ? <GradientFill tone="gold" borderRadius={14} /> : null}
+      {active ? <GradientFill tone={activeTone} borderRadius={14} /> : null}
       <Label
         value={label}
         fontSize={mobile ? 19 : 21}
@@ -2517,6 +2701,7 @@ function LeaderboardTabButton({ id, label }: { id: 'global' | 'last'; label: str
         uiTransform={{ width: '100%', height: '100%', pointerFilter: 'none' }}
         textAlign="middle-center"
       />
+      <HoverAnimation buttonKey={hoverKey} borderRadius={14} />
     </UiEntity>
   )
 }
@@ -2586,18 +2771,17 @@ function LeaderboardMenuScreen(): ReactEcs.JSX.Element {
   leaderboardPage = Math.min(leaderboardPage, pageCount - 1)
   const start = leaderboardPage * pageSize
   const visibleRows = rows.slice(start, start + pageSize)
+  const panelBorder = leaderboardTab === 'last'
+    ? Color4.create(0.92, 0.28, 1.0, 0.88)
+    : Color4.create(1, 0.8, 0.22, 0.82)
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', padding: { top: safe.top, left: safe.left, right: safe.right, bottom: safe.bottom }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: Color4.create(1, 0.8, 0.22, 0.82) }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
-        {leaderboardTab === 'global' && logoHeight > 0 ? <FloatingGlobalLeaderboardTitle panelWidth={width} contentWidth={contentWidth} /> : null}
+      <UiEntity uiTransform={{ positionType: 'relative', width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding, borderRadius: 24, borderWidth: 2, borderColor: panelBorder }} uiBackground={{ color: Color4.create(0.012, 0.012, 0.045, 0.94) }}>
+        {logoHeight > 0 ? <FloatingLeaderboardTitle title={leaderboardTab} panelWidth={width} contentWidth={contentWidth} /> : null}
         <BackButton onClick={returnToLobby} />
         <CloseButton onClick={watchLiveMode} />
         <UiEntity uiTransform={{ width: '100%', height: 56, flexShrink: 0 }} />
-        {logoHeight > 0
-          ? leaderboardTab === 'global'
-            ? <UiEntity uiTransform={{ width: '100%', height: logoHeight - 2, flexShrink: 0, pointerFilter: 'none' }} />
-            : <LeaderboardTitleImage title={leaderboardTab} width={contentWidth} height={logoHeight - 2} />
-          : null}
+        {logoHeight > 0 ? <UiEntity uiTransform={{ width: '100%', height: logoHeight - 2, flexShrink: 0, pointerFilter: 'none' }} /> : null}
         <UiEntity uiTransform={{ width: '100%', height: 44, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', margin: { bottom: 8 } }}>
           <LeaderboardTabButton id="global" label="GLOBAL" />
           <LeaderboardTabButton id="last" label="LAST GAME" />
@@ -2615,7 +2799,19 @@ function LeaderboardMenuScreen(): ReactEcs.JSX.Element {
           <MenuButton label="›" tone="gold" onClick={() => { leaderboardPage = Math.min(pageCount - 1, leaderboardPage + 1) }} disabled={leaderboardPage === pageCount - 1} width={48} height={44} fontSize={28} />
         </UiEntity>
         {footerHeight > 44 ? <UiEntity uiTransform={{ width: '100%', height: 52, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-          <MenuButton label="MENU" tone="cyan" onClick={returnToLobby} width={Math.min(432, contentWidth * 0.8)} height={44} fontSize={26} />
+          <MenuButton
+            label="MENU"
+            tone={leaderboardTab === 'last' ? 'purple' : 'gold'}
+            useRankMenuColors={false}
+            menuArt={leaderboardTab === 'last'
+              ? { src: 'assets/images/ui/levels/menu-last-purple.png', aspect: 2172 / 724 }
+              : { src: 'assets/images/ui/levels/menu-global-gold.png', aspect: 2172 / 724 }}
+            onClick={returnToLobby}
+            width={isMobile() ? 156 : 180}
+            height={isMobile() ? 52 : 48}
+            fontSize={24}
+            borderRadius={14}
+          />
         </UiEntity> : null}
       </UiEntity>
     </UiEntity>
@@ -2630,8 +2826,9 @@ function IdleScreen(): ReactEcs.JSX.Element {
   const logoHeight = short ? Math.min(100, width * 0.24) : Math.min(180, width * 0.36)
   const logoOutset = logoHeight * 0.60
   const logoInsetHeight = logoHeight * 0.42
-  const height = Math.min(short ? 310 : 340, Math.max(250, safe.height - logoOutset - 8))
-  const buttonWidth = Math.min(360, width - 32)
+  const height = Math.min(short ? 292 : 310, Math.max(270, safe.height - logoOutset - 8))
+  const buttonWidth = Math.min(mobile ? 300 : 320, width - 40)
+  const modeButtonHeight = mobile ? 58 : 54
 
   return (
     <UiEntity
@@ -2671,11 +2868,11 @@ function IdleScreen(): ReactEcs.JSX.Element {
         <MenuRankText width={width - 28} height={short ? 28 : 40} />
         <Label value="CHOOSE YOUR MODE" fontSize={Math.min(24, (width - 28) / 12)}
           color={Color4.create(1.0, 0.84, 0.24, 1)}
-          uiTransform={{ width: '100%', height: 30, margin: { bottom: 8 } }} textAlign="middle-center" />
-        <MenuButton label="MULTIPLAYER" tone="green" onClick={readyForMultiplayer} width={buttonWidth}
-          height={44} fontSize={mobile ? 25 : 26} marginBottom={8} />
-        <MenuButton label="SOLO MODE" tone="magenta" onClick={startSoloMode} width={buttonWidth}
-          height={44} fontSize={mobile ? 25 : 26} />
+          uiTransform={{ width: '100%', height: 34, margin: { bottom: 7 } }} textAlign="middle-center" />
+        <MenuButton label="PUBLIC MATCH" tone="green" onClick={readyForMultiplayer} width={buttonWidth}
+          height={modeButtonHeight} fontSize={mobile ? 25 : 26} marginBottom={7} borderRadius={15} />
+        <MenuButton label="SOLO STAGE" tone="purple" onClick={startSoloMode} width={buttonWidth}
+          height={modeButtonHeight} fontSize={mobile ? 25 : 26} borderRadius={15} />
       </UiEntity>
     </UiEntity>
   )
@@ -2730,27 +2927,65 @@ function ReadyScreen(): ReactEcs.JSX.Element {
 function SidePlayMenu(): ReactEcs.JSX.Element {
   const safe = getSafeCanvas()
   const mobile = isMobile()
-  const width = Math.min(isMobile() ? 282 : 250, safe.width)
-  const short = safe.height < 380
-  const logoHeight = short ? Math.min(82, width * 0.34) : Math.min(isMobile() ? 142 : 128, width * 0.52)
+  const availableWidth = Math.min(mobile ? 540 : 500, safe.width - 8)
+  const contentHeight = Math.min(mobile ? 192 : 184, Math.max(mobile ? 178 : 170, safe.height * (mobile ? 0.34 : 0.3)))
+  const height = contentHeight + 18
+  const rankStyle = getDanceRank(gameState.rankPoints)
+  const hitApprenticeMenu = getDanceRankIndex(gameState.rankPoints) === 0
+  const brighten = (color: { r: number; g: number; b: number }, amount: number, alpha = 1) => Color4.create(
+    color.r + (1 - color.r) * amount,
+    color.g + (1 - color.g) * amount,
+    color.b + (1 - color.b) * amount,
+    alpha,
+  )
+  const rankBorder = hitApprenticeMenu ? Color4.create(1.0, 0.18, 0.22, 0.98) : brighten(rankStyle.secondary, 0.25, 0.98)
+  const rankButtonBottom = hitApprenticeMenu ? Color4.create(0.62, 0.015, 0.045, 0.99) : brighten(rankStyle.primary, 0.22, 0.98)
+  const rankButtonTop = hitApprenticeMenu ? Color4.create(1.0, 0.07, 0.11, 0.99) : brighten(rankStyle.secondary, 0.42, 0.98)
+  const badgeSize = Math.min(mobile ? 142 : 132, contentHeight * 0.78)
+  const badgeLeft = 16
+  const badgeTop = Math.max(6, contentHeight - badgeSize - 24)
+  const goalsLeft = badgeLeft + badgeSize + 10
+  const goalsWidth = Math.min(mobile ? 270 : 250, availableWidth - goalsLeft - 18)
+  // Keep the frame tight to the score column on both mobile and desktop.
+  const width = Math.min(availableWidth, goalsLeft + goalsWidth + 16)
+  const logoHeight = Math.min(mobile ? 118 : 108, width * 0.22)
+  const logoWidth = logoHeight * BEAT_SCORE_LOGO_ASPECT
   const logoOutset = logoHeight * 0.62
-  const logoInsetHeight = logoHeight * 0.40
-  const height = Math.min(short ? 330 : mobile ? 430 : 375, Math.max(250, safe.height - logoOutset - 8))
-  const badgeSize = short ? 52 : mobile ? 92 : 112
-  const rpHeight = short ? 20 : 26
-  const goalsHeight = Math.min(mobile ? 174 : 136, height - logoInsetHeight - badgeSize - rpHeight - 44 - 30)
-  const availableTopSpace = Math.max(0, safe.height - height - logoOutset)
+  const goalsHeight = Math.min(mobile ? 120 : 114, contentHeight - 46)
+  const goalsTop = contentHeight - goalsHeight - 16
+  const menuWidth = mobile ? 120 : 114
+  const top = safe.top + logoOutset + Math.min(42, Math.max(0, safe.height - height - logoOutset) * 0.22)
+  const panelPosition = mobile ? { top, left: 0 } : { top, right: safe.right }
+  const hoverKey = 'side-menu-button'
+
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: safe.top + logoOutset + Math.min(availableTopSpace, safe.height * 0.08), right: safe.right }, width, height, flexShrink: 0, flexDirection: 'column', alignItems: 'center', padding: { top: 6, right: 10, bottom: 8, left: 10 }, borderRadius: 16, borderWidth: 1, borderColor: Color4.create(0.48, 0.56, 0.92, 0.72) }} uiBackground={{ color: Color4.create(0.01, 0.01, 0.05, 0.78) }}>
-      <FloatingBeatScoreLogo panelWidth={width} height={logoHeight} outset={0.62} />
-      <UiEntity uiTransform={{ width: '100%', height: logoInsetHeight, flexShrink: 0, pointerFilter: 'none' }} />
-      <DailyGoalsMenuCard compact width={width - 22} height={goalsHeight} />
-      <UiEntity uiTransform={{ width: '100%', height: short ? 4 : 6, flexShrink: 0 }} />
-      <RankBadgeImage points={gameState.rankPoints} size={badgeSize} />
-      <Label value={`${gameState.rankPoints} RP`} fontSize={short ? 16 : 20} color={Color4.White()}
-        uiTransform={{ width: '100%', height: rpHeight, flexShrink: 0, pointerFilter: 'none' }} textAlign="middle-center" />
-      <UiEntity uiTransform={{ width: '100%', height: short ? 4 : 6, flexShrink: 0 }} />
-      <MenuButton label="MENU" tone="gold" onClick={returnToLobby} width="100%" height={44} fontSize={22} />
+    <UiEntity uiTransform={{ positionType: 'absolute', position: panelPosition, width, height, flexShrink: 0, borderRadius: 18, borderWidth: 2, borderColor: rankBorder }}
+      uiBackground={{ color: Color4.create(0.015, 0.01, 0.05, 0.22) }}>
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { top: -logoHeight * 0.62, right: 0 }, width: logoWidth, height: logoHeight, zIndex: 4, pointerFilter: 'none' }}
+        uiBackground={{ texture: { src: BEAT_SCORE_LOGO }, textureMode: 'stretch' }} />
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { top: badgeTop, left: badgeLeft }, width: badgeSize, height: badgeSize + 24, flexDirection: 'column', alignItems: 'center', pointerFilter: 'none' }}>
+        <RankBadgeImage points={gameState.rankPoints} size={badgeSize} />
+        <Label value={`${gameState.rankPoints} RP`} fontSize={mobile ? 18 : 17} color={Color4.White()}
+          uiTransform={{ width: '100%', height: 24, flexShrink: 0, pointerFilter: 'none' }} textAlign="middle-center" />
+      </UiEntity>
+      <UiEntity uiTransform={{ positionType: 'absolute', position: { top: goalsTop, left: goalsLeft }, width: goalsWidth, height: goalsHeight }}>
+        <DailyGoalsMenuCard compact width={goalsWidth} height={goalsHeight} transparent />
+      </UiEntity>
+      <UiEntity
+        uiTransform={{ positionType: 'absolute', position: { right: -6, bottom: -18 }, width: menuWidth, height: 48, zIndex: 5, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: mobile ? 0 : 2, borderColor: rankBorder, overflow: 'hidden', pointerFilter: 'block' }}
+        uiBackground={{ color: rankButtonBottom }}
+        onMouseDown={() => beginButtonPress(hoverKey)}
+        onMouseUp={() => finishButtonPress(hoverKey, returnToLobby)}
+        onMouseEnter={() => beginButtonHover(hoverKey)}
+        onMouseLeave={() => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
+      >
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 2, left: 2 }, width: '96%', height: '48%', borderRadius: 11, pointerFilter: 'none' }}
+          uiBackground={{ color: rankButtonTop }} />
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 2, left: 3 }, width: '94%', height: '16%', borderRadius: 10, pointerFilter: 'none' }}
+          uiBackground={{ color: Color4.create(1, 1, 1, 0.18) }} />
+        <ButtonLabelGraphic label="MENU" height={48} maxWidth={menuWidth * 0.86} />
+        <HoverAnimation buttonKey={hoverKey} borderRadius={13} />
+      </UiEntity>
     </UiEntity>
   )
 }
@@ -2759,6 +2994,7 @@ function JumpOffButton(): ReactEcs.JSX.Element {
   const mobile = isMobile()
   const titleWidth = mobile ? 131 : 145
   const titleHeight = mobile ? 30 : 33
+  const hoverKey = 'jump-off-button'
   return (
     <UiEntity
       uiTransform={{
@@ -2774,7 +3010,10 @@ function JumpOffButton(): ReactEcs.JSX.Element {
         pointerFilter: 'block',
       }}
       uiBackground={{ color: Color4.create(0.18, 0.02, 0.06, 0.90) }}
-      onMouseDown={() => runButtonAction(requestJumpOff)}
+      onMouseDown={() => beginButtonPress(hoverKey)}
+      onMouseUp={() => finishButtonPress(hoverKey, requestJumpOff)}
+      onMouseEnter={() => beginButtonHover(hoverKey)}
+      onMouseLeave={() => { if (hoveredButtonKey === hoverKey) hoveredButtonKey = ''; if (pressedButtonKey === hoverKey) pressedButtonKey = '' }}
     >
       <CroppedMenuTitleImage
         src={JUMP_OFF_TITLE}
@@ -2782,6 +3021,7 @@ function JumpOffButton(): ReactEcs.JSX.Element {
         height={titleHeight}
         bounds={JUMP_OFF_TITLE_BOUNDS}
       />
+      <HoverAnimation buttonKey={hoverKey} borderRadius={12} />
     </UiEntity>
   )
 }
@@ -3063,7 +3303,15 @@ export function setupUI(): void {
   AudioSource.create(buttonSoundEntity, {
     audioClipUrl: BUTTON_SOUND,
     playing: false,
-    volume: 0.55,
+    volume: 0.95,
+    loop: false,
+    global: true,
+  })
+  buttonHoverSoundEntity = engine.addEntity()
+  AudioSource.create(buttonHoverSoundEntity, {
+    audioClipUrl: BUTTON_SOUND,
+    playing: false,
+    volume: 0.42,
     loop: false,
     global: true,
   })

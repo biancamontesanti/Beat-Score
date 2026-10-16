@@ -165,7 +165,9 @@ const PERSISTENT_GLOBAL_LEADERBOARD_KEY = 'beat-score-global-leaderboard-v1'
 const PERSISTENT_PLAYER_PROGRESS_KEY = 'beat-score-player-progress-v1'
 const GLOBAL_LEADERBOARD_LIMIT = 20
 const DAILY_GOALS_VERSION = 2
-let dailyGoalsSeed = getDailySeed()
+const DAILY_GOALS_DURATION_MS = 24 * 60 * 60 * 1000
+let dailyGoalsResetAt = Date.now() + DAILY_GOALS_DURATION_MS
+let dailyGoalsSeed = String(dailyGoalsResetAt - DAILY_GOALS_DURATION_MS)
 
 function getDailySeed(): string {
   const now = new Date()
@@ -173,10 +175,10 @@ function getDailySeed(): string {
 }
 
 function getGoalScale(rankPoints: number): number {
-  if (rankPoints >= 900) return 3
-  if (rankPoints >= 500) return 2.4
-  if (rankPoints >= 250) return 1.8
-  if (rankPoints >= 100) return 1.35
+  if (rankPoints >= DANCE_RANKS[4].points) return 3
+  if (rankPoints >= DANCE_RANKS[3].points) return 2.4
+  if (rankPoints >= DANCE_RANKS[2].points) return 1.8
+  if (rankPoints >= DANCE_RANKS[1].points) return 1.35
   return 1
 }
 
@@ -312,6 +314,10 @@ let totalBeats = 0
 let playerMovementLocked = false
 let playerEmotesDisabled = false
 let sceneEmoteAllowanceUntil = 0
+let activeSceneDanceEmote = ''
+let activeSceneDanceEmoteUntil = 0
+let activeSceneDanceEmoteRetryAt = 0
+let mobileHitRequested = false
 let lastLocalEmoteTimestamp = -1
 let touchControlsHidden = false
 let jumpOffRequested = false
@@ -350,6 +356,8 @@ let syncedMultiplayerState: RoundState | null = null
 let localAudienceSlotIndex = -1
 let localAudienceSlotPlayerId = ''
 let audienceEnforceTimer = 0
+let mobileInitialAudiencePlacementPending = isMobile()
+let mobileInitialAudiencePlacementDelay = 1.0
 let remoteLiveMatchTimer = 0
 let remoteLiveMatchStartTimeMs = 0
 let cachedMultiplayerMatchDuration = 0
@@ -688,8 +696,13 @@ function createAudienceSlots(): Vector3[] {
   addSideRow(28.5, 1.77, [10, 13.5, 17, 20.5, 24])
   addSideRow(30.34, 2.57, [11.5, 15, 18.5, 22])
 
-  addBackRow(27.5, 1.07, [9, 12, 15, 18, 21, 24])
-  addBackRow(29.0, 1.77, [10, 13.5, 17, 20.5, 23.5])
+  // Bleacher Steps 07–09 sit behind the dance floor. Keep these rows well
+  // inside the side speakers/trusses: the old edge slots at x=9/24 and
+  // x=10/23.5 could place an avatar inside that geometry (including the
+  // small per-session random offset applied below).
+  addBackRow(27.5, 1.07, [11.5, 13.75, 16, 18.25, 20.5])
+  addBackRow(29.0, 1.77, [12, 14, 16, 18, 20])
+  addBackRow(30.5, 2.57, [13, 15, 17, 19])
 
   return slots
 }
@@ -1267,10 +1280,14 @@ function tickMultiplayerReadyWindow(): void {
 // Hit-bar travel time, independent from lobby and between-combo countdowns.
 // The first long-combo tier receives a small reading allowance so its transition
 // is smooth; after that the marker continues accelerating without random speed changes.
-// These values include the 0.1014545-second per-round alignment needed for
-// 22 rounds plus fixed 3-second countdowns to end with the 158.832-second song.
-const HIT_BAR_START_DURATION = 4.7414545
-const HIT_BAR_END_DURATION = 3.6414545
+// The calculated timeline used to end at 158.832 seconds while the encoded
+// track is 158.800 seconds. That 32 ms overrun left no tolerance for frame and
+// decoder variance, so audio could end before FINAL MOVE completed. A tiny,
+// uniform correction preserves the acceleration curve and leaves ~0.4 s of
+// safety; finishGame then stops the still-playing track at the exact ending.
+const MATCH_MUSIC_SYNC_CORRECTION_PER_ROUND = 0.02
+const HIT_BAR_START_DURATION = 4.7414545 - MATCH_MUSIC_SYNC_CORRECTION_PER_ROUND
+const HIT_BAR_END_DURATION = 3.6414545 - MATCH_MUSIC_SYNC_CORRECTION_PER_ROUND
 const HIT_BAR_MODE_ALLOWANCE: Record<RoundMode, number> = {
   easy: 0,
   middle: -0.08,
@@ -1310,7 +1327,8 @@ const COMBO_EMOTE_TRACK = [
   'robot',
   'tik',
 ]
-const FAIL_EMOTE = 'shrug'
+const FAIL_EMOTE_TRACK = ['shrug', 'dontsee'] as const
+let failEmoteIndex = 0
 const FACE_GLOBAL_LEADERBOARD_ROTATION = Quaternion.fromEulerDegrees(0, 180, 0)
 const HIT_CINEMATIC_APPROACH = 1.45
 const HIT_CINEMATIC_HOLD = 4.0
@@ -1325,19 +1343,64 @@ const ARROW_FAIL_SOUND_URL = 'public/sounds/fail-arrow.mp3'
 const MATCH_MUSIC_URL = 'public/sounds/beatdropmusic.mp3'
 const VICTORY_SOUND_URL = 'public/sounds/gaming-victory.mp3'
 const POST_GAME_RESULT_DURATION = WINNER_CELEBRATION_DURATION
+const MOBILE_SCENE_EMOTE_ALLOWANCE_MS = 12000
+
+function isMobileSceneEmoteActive(): boolean {
+  return isMobile() && activeSceneDanceEmote.length > 0 && Date.now() <= activeSceneDanceEmoteUntil
+}
+
+function clearActiveSceneDanceEmote(): void {
+  sceneEmoteAllowanceUntil = 0
+  activeSceneDanceEmote = ''
+  activeSceneDanceEmoteUntil = 0
+  activeSceneDanceEmoteRetryAt = 0
+}
+
+function triggerActiveSceneDanceEmote(): void {
+  if (!activeSceneDanceEmote) return
+  const emote = activeSceneDanceEmote
+  if (isMobile() && gameState.phase === 'playing') {
+    setPlayerMovementLocked(true, false)
+  }
+  void triggerEmote({ predefinedEmote: emote }).catch(() => {
+    if (activeSceneDanceEmote === emote && Date.now() < activeSceneDanceEmoteUntil) {
+      activeSceneDanceEmoteRetryAt = Date.now() + 120
+    }
+  })
+}
 
 function playPredefinedEmote(predefinedEmote: string): void {
-  // InputModifier blocks voluntary emotes but still allows scene-authored dance
-  // feedback. Mark this short window so the mobile fallback below preserves it.
-  sceneEmoteAllowanceUntil = Date.now() + 1500
-  void triggerEmote({ predefinedEmote }).catch(() => {})
+  // Mobile Explorer also applies disableEmote to scene-triggered emotes. Keep
+  // movement locked, but briefly lift only the emote restriction before the
+  // command is sent and preserve it through the between-sequence dance break.
+  sceneEmoteAllowanceUntil = Date.now() + MOBILE_SCENE_EMOTE_ALLOWANCE_MS
+  activeSceneDanceEmote = predefinedEmote
+  activeSceneDanceEmoteUntil = sceneEmoteAllowanceUntil
+  activeSceneDanceEmoteRetryAt = 0
+  triggerActiveSceneDanceEmote()
 }
 
 function stopLocalDanceEmote(): void {
   // Scene-authored score/winner emotes can outlive the gameplay state on some
   // mobile clients. Revoke the allowance first, then explicitly stop playback.
-  sceneEmoteAllowanceUntil = 0
+  clearActiveSceneDanceEmote()
+  mobileHitRequested = false
   void stopEmote({}).catch(() => {})
+}
+
+function tickMobileSceneDanceEmoteRecovery(): void {
+  if (!isMobile() || gameState.playMode !== 'solo' || gameState.phase !== 'playing') return
+  if (!activeSceneDanceEmote) return
+
+  const now = Date.now()
+  if (now >= activeSceneDanceEmoteUntil) {
+    clearActiveSceneDanceEmote()
+    return
+  }
+  if (activeSceneDanceEmoteRetryAt <= 0 || now < activeSceneDanceEmoteRetryAt) return
+
+  activeSceneDanceEmoteRetryAt = 0
+  triggerActiveSceneDanceEmote()
 }
 
 function stopUnauthorizedPlayerEmotes(): void {
@@ -1354,6 +1417,25 @@ function stopUnauthorizedPlayerEmotes(): void {
 
   lastLocalEmoteTimestamp = newestTimestamp
   const emoteStarted = newestState === 0
+  if (
+    isMobile() &&
+    gameState.playMode === 'solo' &&
+    activeSceneDanceEmote &&
+    Date.now() < activeSceneDanceEmoteUntil
+  ) {
+    if (newestState === 1) {
+      // The animation reached its natural end. Release the transform guard
+      // without explicitly stopping or replacing the completed emote.
+      clearActiveSceneDanceEmote()
+      return
+    }
+    if (newestState === 2) {
+      // Only interrupted animations are retried. A naturally completed dance
+      // must never be looped or cut short.
+      activeSceneDanceEmoteRetryAt = Date.now() + 120
+      return
+    }
+  }
   if (emoteStarted && Date.now() > sceneEmoteAllowanceUntil) {
     void stopEmote({}).catch(() => {})
   }
@@ -1370,7 +1452,8 @@ function playGoodDanceEmote(seed: number): void {
 }
 
 function playComboFailEmote(): void {
-  playPredefinedEmote(FAIL_EMOTE)
+  playPredefinedEmote(FAIL_EMOTE_TRACK[failEmoteIndex % FAIL_EMOTE_TRACK.length])
+  failEmoteIndex = (failEmoteIndex + 1) % FAIL_EMOTE_TRACK.length
 }
 
 function getLocalDanceSlotPosition(): Vector3 {
@@ -1588,7 +1671,6 @@ function sortMatchPlayers(): void {
     return b.maxCombo - a.maxCombo
   })
   gameState.matchWinnerName = gameState.matchPlayers[0]?.name || ''
-  updateLastDanceLeaderboardSnapshot()
 }
 
 function updateLastDanceLeaderboardSnapshot(): void {
@@ -2528,7 +2610,7 @@ function getSaveKey(): string {
   return `${SAVE_KEY_PREFIX}:${getLocalPlayerIdentity().playerId}`
 }
 
-function readSavedProgress(): { rankPoints?: number; wins?: number; matchesPlayed?: number; dailySeed?: string; dailyGoalsVersion?: number; dailyGoals?: DailyGoal[] } | null {
+function readSavedProgress(): { rankPoints?: number; wins?: number; matchesPlayed?: number; dailySeed?: string; dailyGoalsResetAt?: number; dailyGoalsVersion?: number; dailyGoals?: DailyGoal[]; lastDanceLeaderboard?: unknown[] } | null {
   try {
     const storage = typeof localStorage === 'undefined' ? undefined : localStorage
     const raw = storage?.getItem(getSaveKey())
@@ -2549,27 +2631,46 @@ function saveProgress(): void {
       wins: local?.wins || 0,
       matchesPlayed: local?.matchesPlayed || 0,
       dailySeed: dailyGoalsSeed,
+      dailyGoalsResetAt,
       dailyGoalsVersion: DAILY_GOALS_VERSION,
       dailyGoals: gameState.dailyGoals,
+      lastDanceLeaderboard: gameState.lastDanceLeaderboard.map(storedLeaderboardEntry),
     }))
   } catch {}
 }
 
 function loadProgress(): void {
   const saved = readSavedProgress()
-  const today = getDailySeed()
-  dailyGoalsSeed = today
+  const now = Date.now()
   const playerId = getLocalPlayerIdentity().playerId
   loadGlobalLeaderboard()
   if (saved) {
     gameState.rankPoints = Math.max(0, Number(saved.rankPoints) || 0)
-    if (saved.dailySeed === today && saved.dailyGoalsVersion === DAILY_GOALS_VERSION && Array.isArray(saved.dailyGoals) && saved.dailyGoals.length === 3) {
+    if (Array.isArray(saved.lastDanceLeaderboard)) {
+      const localPlayerId = normalizePlayerId(getLocalPlayerIdentity().playerId)
+      gameState.lastDanceLeaderboard = saved.lastDanceLeaderboard
+        .map(normalizeLeaderboardEntry)
+        .filter((entry): entry is MatchPlayer => entry !== null)
+        .map(entry => ({ ...entry, isLocal: normalizePlayerId(entry.playerId) === localPlayerId }))
+    }
+    const savedGoalsValid = saved.dailyGoalsVersion === DAILY_GOALS_VERSION && Array.isArray(saved.dailyGoals) && saved.dailyGoals.length === 3
+    const savedResetAt = Number(saved.dailyGoalsResetAt) || 0
+    // Migrate the previous calendar-day save without throwing away today's
+    // progress. From this point forward the cycle is a strict rolling 24 h.
+    const legacyGoalsStillCurrent = savedGoalsValid && saved.dailySeed === getDailySeed()
+    if (savedGoalsValid && (savedResetAt > now || legacyGoalsStillCurrent)) {
+      dailyGoalsResetAt = savedResetAt > now ? savedResetAt : now + DAILY_GOALS_DURATION_MS
+      dailyGoalsSeed = String(saved.dailySeed || (dailyGoalsResetAt - DAILY_GOALS_DURATION_MS))
       gameState.dailyGoals = saved.dailyGoals
     } else {
-      gameState.dailyGoals = createDailyGoals(gameState.rankPoints, today, playerId)
+      dailyGoalsResetAt = now + DAILY_GOALS_DURATION_MS
+      dailyGoalsSeed = String(now)
+      gameState.dailyGoals = createDailyGoals(gameState.rankPoints, dailyGoalsSeed, playerId)
     }
   } else {
-    gameState.dailyGoals = createDailyGoals(gameState.rankPoints, today, playerId)
+    dailyGoalsResetAt = now + DAILY_GOALS_DURATION_MS
+    dailyGoalsSeed = String(now)
+    gameState.dailyGoals = createDailyGoals(gameState.rankPoints, dailyGoalsSeed, playerId)
   }
 
   refreshRank()
@@ -2604,10 +2705,11 @@ function awardRankPoints(points: number): void {
 }
 
 function refreshDailyGoals(): void {
-  const today = getDailySeed()
-  if (today === dailyGoalsSeed) return
-  dailyGoalsSeed = today
-  gameState.dailyGoals = createDailyGoals(gameState.rankPoints, today, getLocalPlayerIdentity().playerId)
+  const now = Date.now()
+  if (now < dailyGoalsResetAt) return
+  dailyGoalsResetAt = now + DAILY_GOALS_DURATION_MS
+  dailyGoalsSeed = String(now)
+  gameState.dailyGoals = createDailyGoals(gameState.rankPoints, dailyGoalsSeed, getLocalPlayerIdentity().playerId)
   saveProgress()
 }
 
@@ -2692,6 +2794,10 @@ function finishGame(completedSong: boolean): void {
     awardPlacementRankPoints()
   }
   updateLocalMatchPlayer(true)
+  // Replace LAST GAME only when a match actually finishes. Lobby navigation,
+  // ready-state updates and the next match's live scores must keep showing the
+  // previous completed result until this point.
+  updateLastDanceLeaderboardSnapshot()
   saveProgress()
   publishScore(true)
   recordGlobalLeaderboardScore()
@@ -2754,6 +2860,11 @@ function setPlayerMovementLocked(locked: boolean, disableEmotes = false, force =
 function placePlayerOnDanceSpot(): void {
   if (!Transform.has(engine.PlayerEntity)) return
 
+  // Writing the local avatar Transform counts as movement on mobile Explorer
+  // and interrupts its current emote. Movement is already locked, so the
+  // avatar can safely keep its dance transform until the emote finishes.
+  if (isMobileSceneEmoteActive()) return
+
   const transform = Transform.getMutable(engine.PlayerEntity)
   const slotPosition = getLocalDanceSlotPosition()
   const dx = Math.abs(transform.position.x - slotPosition.x)
@@ -2808,7 +2919,36 @@ function placePlayerOnAudienceSpot(): void {
   ), Vector3.Up())
 }
 
+function isPlayerAlreadyAtAudienceSpawn(): boolean {
+  const transform = Transform.getOrNull(engine.PlayerEntity)
+  if (!transform) return false
+
+  // Includes the per-session x/z offset (up to 0.36 m) while remaining tight
+  // enough not to mistake the nearby dance floor for an audience spawn.
+  return AUDIENCE_SLOTS.some(slot =>
+    Math.abs(transform.position.x - slot.x) <= 0.72 &&
+    Math.abs(transform.position.y - slot.y) <= 0.85 &&
+    Math.abs(transform.position.z - slot.z) <= 0.72
+  )
+}
+
+function facePlayerTowardDanceFloor(): void {
+  if (!Transform.has(engine.PlayerEntity)) return
+  const transform = Transform.getMutable(engine.PlayerEntity)
+  transform.rotation = Quaternion.lookRotation(Vector3.create(
+    AUDIENCE_DANCE_FLOOR_TARGET.x - transform.position.x,
+    0,
+    AUDIENCE_DANCE_FLOOR_TARGET.z - transform.position.z,
+  ), Vector3.Up())
+}
+
 function teleportPlayerToAudienceSpot(): void {
+  if (isPlayerAlreadyAtAudienceSpawn()) {
+    facePlayerTowardDanceFloor()
+    stopLocalDanceEmote()
+    return
+  }
+
   const slotPosition = getLocalAudienceSlotPosition()
   stopLocalDanceEmote()
   placePlayerOnAudienceSpot()
@@ -2839,7 +2979,9 @@ function keepNonPlayersOffDanceFloor(dt: number): void {
 }
 
 function keepPlayerOnDanceSpot(): void {
-  setPlayerMovementLocked(true, true)
+  // On mobile, disableEmote also cancels scene-authored animations. Movement
+  // remains locked and unauthorized starts are rejected separately below.
+  setPlayerMovementLocked(true, !isMobile())
   placePlayerOnDanceSpot()
 }
 
@@ -2880,11 +3022,14 @@ function refreshActiveMatchRestrictions(dt: number): void {
   // Some mobile Explorer builds rebuild their HUD after camera transitions.
   // Reassert match restrictions so the emote/native buttons cannot reappear.
   matchRestrictionRefreshTimer = 0.5
-  setPlayerMovementLocked(true, true, true)
-  setNativeTouchControlsHidden(true, true)
+  // Never recreate the mobile InputModifier during an emote: Explorer treats
+  // even an equivalent replacement as a command to stop the animation.
+  const mobileSceneEmoteActive = isMobileSceneEmoteActive()
+  setPlayerMovementLocked(true, !isMobile(), !isMobile() && !mobileSceneEmoteActive)
+  setNativeTouchControlsHidden(true, !mobileSceneEmoteActive)
   // Solo uses its own scene-wide area. Re-creating the passport area here and
   // deleting it again next frame makes the Explorer show every avatar inside.
-  if (gameState.playMode !== 'solo') setMatchPassportLock(true, true)
+  if (gameState.playMode !== 'solo') setMatchPassportLock(true, !mobileSceneEmoteActive)
 }
 
 function initCinematicCamera(): void {
@@ -3096,10 +3241,11 @@ export function getSpaceWindow(): { start: number; end: number } {
 }
 
 function getRoundMode(measureCount: number): RoundMode {
-  const progress = measureCount / TOTAL_MEASURES
-  if (progress < 0.25) return 'easy'
-  if (progress < 0.50) return 'middle'
-  if (progress < 0.75) return 'freestyle'
+  // 5 Easy + 5 Intermediate + 6 Reverse + 5 Hard. Easy previously had six
+  // sequences; removing one brings FINAL MOVE safely ahead of the music end.
+  if (measureCount < 5) return 'easy'
+  if (measureCount < 10) return 'middle'
+  if (measureCount < 16) return 'freestyle'
   return 'hard'
 }
 
@@ -3325,6 +3471,7 @@ function syncMultiplayerTimeline(): boolean {
 // Public: lobby / start / restart
 // ──────────────────────────────────────────────────────────
 function startGame(mode: Exclude<PlayMode, 'none'>): void {
+  mobileHitRequested = false
   gameState.playMode = mode
   gameState.lobbyPrompt = 'hidden'
   postGameReturnTimer = 0
@@ -3347,7 +3494,7 @@ function startGame(mode: Exclude<PlayMode, 'none'>): void {
     lockMatchSlots()
   }
 
-  setPlayerMovementLocked(true, true)
+  setPlayerMovementLocked(true, !isMobile())
   setNativeTouchControlsHidden(true)
   matchRestrictionRefreshTimer = 0
   teleportPlayerToDanceSpot()
@@ -3524,6 +3671,10 @@ export function joinMultiplayerMatch(): void {
 }
 
 export function returnToLobby(): void {
+  // Opening the main menu from another idle menu is UI-only. Calling the
+  // restricted movePlayerTo action in that state makes Explorer present it as
+  // a fresh respawn, even though the avatar is already in the audience.
+  const shouldReturnToAudience = gameState.phase !== 'idle' || gameState.playMode !== 'none' || pendingSoloStart
   jumpOffRequested = false
   resultsPresentation.elapsed = 0
   resultsPresentation.remaining = 0
@@ -3560,7 +3711,7 @@ export function returnToLobby(): void {
   setPlayerMovementLocked(false)
   setNativeTouchControlsHidden(false)
   setCinematicCameraActive(false)
-  teleportPlayerToAudienceSpot()
+  if (shouldReturnToAudience) teleportPlayerToAudienceSpot()
   stopMatchMusic()
   publishScore(false)
 }
@@ -3571,6 +3722,11 @@ export function returnToLobby(): void {
 export function requestJumpOff(): void {
   if (gameState.phase !== 'playing' || jumpOffRequested) return
   jumpOffRequested = true
+}
+
+export function requestMobileHit(): void {
+  if (!isMobile() || gameState.phase !== 'playing' || gameState.roundState !== 'active') return
+  mobileHitRequested = true
 }
 
 // React ECS dispatches mobile UI input while it is still resolving the active
@@ -3847,6 +4003,18 @@ export function initGame(): void {
       returnToLobby()
       return
     }
+    if (mobileInitialAudiencePlacementPending) {
+      if (gameState.phase !== 'idle' || gameState.playMode !== 'none' || pendingSoloStart) {
+        mobileInitialAudiencePlacementPending = false
+      } else {
+        mobileInitialAudiencePlacementDelay = Math.max(0, mobileInitialAudiencePlacementDelay - dt)
+        if (mobileInitialAudiencePlacementDelay <= 0 && Transform.has(engine.PlayerEntity)) {
+          mobileInitialAudiencePlacementPending = false
+          teleportPlayerToAudienceSpot()
+          return
+        }
+      }
+    }
     refreshDailyGoals()
     tickRankPresence(dt)
     const soloPlaying = gameState.playMode === 'solo' && gameState.phase === 'playing'
@@ -3987,6 +4155,7 @@ export function initGame(): void {
     keepPlayerOnDanceSpot()
     refreshActiveMatchRestrictions(dt)
     stopUnauthorizedPlayerEmotes()
+    tickMobileSceneDanceEmoteRecovery()
     localMatchElapsed += dt
     setNativeTouchControlsHidden(true)
     setCinematicCameraActive(true)
@@ -4076,8 +4245,12 @@ export function initGame(): void {
       handleArrow('upRight')
     }
 
-    // ── Spacebar = timing judgment ──
-    if (inputSystem.isTriggered(InputAction.IA_JUMP, PointerEventType.PET_DOWN)) {
+    // ── Desktop Space / isolated mobile HIT = timing judgment ──
+    const hitTriggered = mobileInput
+      ? mobileHitRequested
+      : inputSystem.isTriggered(InputAction.IA_JUMP, PointerEventType.PET_DOWN)
+    mobileHitRequested = false
+    if (hitTriggered) {
       if (mobileInput) mobileTapFeedback.hit = 1
       handleSpace(mobileInput)
     }

@@ -1,10 +1,10 @@
 // One catalog for progression, HUD images, avatar labels and physical boards.
 export const DANCE_RANKS = [
   { name: 'Hit Apprentice', points: 0, asset: 'hit-apprentice', labelAspect: 3, judgment: 'MISS!', judgmentScore: 0, primary: { r: 0.58, g: 0.04, b: 0.12 }, secondary: { r: 0.94, g: 0.15, b: 0.35 } },
-  { name: 'Move Riser', points: 100, asset: 'move-riser', labelAspect: 3, judgment: 'GOOD!', judgmentScore: 100, primary: { r: 1, g: 0.56, b: 0.10 }, secondary: { r: 1, g: 0.76, b: 0.30 } },
-  { name: 'Club Star', points: 250, asset: 'club-star', labelAspect: 3, judgment: 'COOL!', judgmentScore: 400, primary: { r: 0.76, g: 0.34, b: 1 }, secondary: { r: 0.49, g: 0.23, b: 0.85 } },
-  { name: 'Step Legend', points: 500, asset: 'step-legend', labelAspect: 3, judgment: 'GREAT!', judgmentScore: 700, primary: { r: 0.34, g: 1, b: 0.54 }, secondary: { r: 0.12, g: 0.72, b: 0.52 } },
-  { name: 'Dance Royalty', points: 900, asset: 'dance-royalty', labelAspect: 3, judgment: 'PERFECT!', judgmentScore: 1000, primary: { r: 0.18, g: 0.90, b: 1 }, secondary: { r: 0.10, g: 0.61, b: 0.90 } },
+  { name: 'Move Riser', points: 250, asset: 'move-riser', labelAspect: 3, judgment: 'GOOD!', judgmentScore: 100, primary: { r: 1, g: 0.56, b: 0.10 }, secondary: { r: 1, g: 0.76, b: 0.30 } },
+  { name: 'Club Star', points: 750, asset: 'club-star', labelAspect: 3, judgment: 'COOL!', judgmentScore: 400, primary: { r: 0.76, g: 0.34, b: 1 }, secondary: { r: 0.49, g: 0.23, b: 0.85 } },
+  { name: 'Step Legend', points: 1750, asset: 'step-legend', labelAspect: 3, judgment: 'GREAT!', judgmentScore: 700, primary: { r: 0.34, g: 1, b: 0.54 }, secondary: { r: 0.12, g: 0.72, b: 0.52 } },
+  { name: 'Dance Royalty', points: 3500, asset: 'dance-royalty', labelAspect: 3, judgment: 'PERFECT!', judgmentScore: 1000, primary: { r: 0.18, g: 0.90, b: 1 }, secondary: { r: 0.10, g: 0.61, b: 0.90 } },
 ] as const
 
 export function getDanceRankIndex(points: number): number {
